@@ -51,6 +51,17 @@ python3 -m http.server 8000
   modal with Polymarket's generated context (`eventMetadata.context_description`)
   explaining the reasoning behind the implied probabilities, plus when that
   analysis was last generated. Hidden for matches without context.
+- **Result celebration & sharing**: when a spin lands, a non-blocking result
+  card pops up (you can re-spin without dismissing it) and confetti fires — its
+  intensity *scales with the surprise*: a heavy favorite gets a light sprinkle,
+  a giant-killing gets the full burst and an "Upset / Huge upset" badge (the
+  winner is an upset when it wasn't the market favorite, "huge" under 18%). A
+  **Share result** button uses the Web Share API to post a generated 1080×1080
+  card (winner, flag, "the market gave them X%") to WhatsApp/X/etc.; on browsers
+  without file sharing it shares text + link, and on desktop it copies the link.
+  Flags in the share image are loaded `crossOrigin` so the canvas stays
+  export-safe (a flag that isn't CORS-clean is simply omitted). Confetti and the
+  pop animation respect `prefers-reduced-motion`.
 - **Live updates**: matches whose kick-off (UTC `startTime`) has passed are
   flagged **LIVE**; while any game is live the odds re-fetch every 30s and the
   footer shows the last-updated time in the viewer's local timezone. Resolved
