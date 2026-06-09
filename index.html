@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ruleta Mundial · Odds de Polymarket</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="app__header">
+      <h1>🎡 Ruleta Mundial</h1>
+      <p class="app__subtitle">
+        Probabilidades reales de <strong>Polymarket</strong>. El ángulo de cada
+        sección equivale a la probabilidad implícita del resultado.
+      </p>
+    </header>
+
+    <section class="controls">
+      <label for="match-select" class="controls__label">Partido</label>
+      <div class="controls__row">
+        <select id="match-select" class="controls__select" disabled>
+          <option>Cargando partidos…</option>
+        </select>
+        <button id="refresh-btn" class="btn btn--ghost" title="Refrescar odds">
+          ⟳
+        </button>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="wheel-area">
+      <div class="wheel-wrap">
+        <div class="wheel-pointer" aria-hidden="true"></div>
+        <canvas id="wheel" width="520" height="520" role="img"
+                aria-label="Ruleta de resultados"></canvas>
+      </div>
+
+      <div class="legend" id="legend" hidden></div>
+
+      <button id="spin-btn" class="btn btn--primary" disabled>Girar</button>
+
+      <div id="result" class="result" hidden>
+        <span class="result__label">Resultado</span>
+        <strong id="result-text" class="result__text"></strong>
+      </div>
+    </section>
+
+    <footer class="app__footer">
+      <span id="odds-source" class="odds-source"></span>
+      <span class="disclaimer">
+        Datos de Polymarket (Gamma API). Solo con fines de entretenimiento.
+      </span>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
