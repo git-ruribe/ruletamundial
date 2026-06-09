@@ -103,6 +103,7 @@
   <div class="row">
     <button class="primary" id="copydiag">📋 Copy diagnostics for Claude</button>
     <button id="copyraw">📋 Copy FULL raw events (untrimmed)</button>
+    <button id="copymatch">📋 Copy raw MATCH events only (“vs”)</button>
     <label>events</label>
     <input id="rawn" type="number" value="4" style="width:70px" />
     <span id="copystatus" class="hint"></span>
@@ -174,6 +175,10 @@
       }
       if (hideProps) events = events.filter(ev => !PROP_RE.test(ev.title||''));
       if (onlyVs) events = events.filter(ev => MATCH_VS.test(ev.title||''));
+
+      // The API's order param is not honored reliably here — sort client-side
+      // by endDate ascending so matches (early) surface above season-long groups.
+      events.sort((a,b)=>(Date.parse(a.endDate)||Infinity)-(Date.parse(b.endDate)||Infinity));
 
       lastEvents = events;
       const ms = Math.round(performance.now()-t0);
@@ -355,6 +360,12 @@
       const n = Math.max(1, parseInt($('rawn').value, 10) || 4);
       const full = JSON.stringify(lastEvents.slice(0, n), null, 2);
       copyText(full, 'Copied FULL raw of ' + Math.min(n, lastEvents.length) + ' event(s).');
+    });
+    $('copymatch').addEventListener('click', () => {
+      const n = Math.max(1, parseInt($('rawn').value, 10) || 4);
+      const ms = lastEvents.filter(ev => MATCH_VS.test(ev.title || ''));
+      const full = JSON.stringify(ms.slice(0, n), null, 2);
+      copyText(full, 'Copied raw of ' + Math.min(n, ms.length) + ' match event(s) (of ' + ms.length + ').');
     });
 
     // Auto-run once on load.
