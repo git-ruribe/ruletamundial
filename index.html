@@ -30,22 +30,26 @@
     </section>
 
     <section class="wheel-area">
-      <div class="wheel-wrap">
-        <div class="wheel-pointer" aria-hidden="true"></div>
-        <canvas id="wheel" width="520" height="520" role="img"
-                aria-label="Outcome wheel"></canvas>
+      <div class="wheel-slot">
+        <div class="wheel-wrap">
+          <div class="wheel-pointer" aria-hidden="true"></div>
+          <canvas id="wheel" width="520" height="520" role="img"
+                  aria-label="Outcome wheel"></canvas>
 
-        <div id="loading" class="loading" hidden>
-          <div class="loading__spinner" aria-hidden="true"></div>
-          <p class="loading__text">Fetching World Cup odds from Polymarket…</p>
+          <div id="loading" class="loading" hidden>
+            <div class="loading__spinner" aria-hidden="true"></div>
+            <p class="loading__text">Fetching World Cup odds from Polymarket…</p>
+          </div>
         </div>
       </div>
 
-      <div class="legend" id="legend" hidden></div>
+      <div class="legend is-hidden" id="legend"></div>
+
+      <p id="match-desc" class="match-desc is-hidden"></p>
 
       <button id="spin-btn" class="btn btn--primary" disabled>Spin</button>
 
-      <div id="result" class="result" hidden>
+      <div id="result" class="result is-hidden">
         <span class="result__label">Result</span>
         <strong id="result-text" class="result__text"></strong>
       </div>

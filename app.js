@@ -58,11 +58,14 @@ const el = {
   status: document.getElementById('status'),
   spin: document.getElementById('spin-btn'),
   legend: document.getElementById('legend'),
+  matchDesc: document.getElementById('match-desc'),
   result: document.getElementById('result'),
   resultText: document.getElementById('result-text'),
   oddsSource: document.getElementById('odds-source'),
   loading: document.getElementById('loading'),
   canvas: document.getElementById('wheel'),
+  wheelWrap: document.querySelector('.wheel-wrap'),
+  wheelSlot: document.querySelector('.wheel-slot'),
 };
 const ctx = el.canvas.getContext('2d');
 
@@ -74,6 +77,22 @@ function setStatus(msg, kind = '') {
 
 function showLoading(show) {
   el.loading.hidden = !show;
+}
+
+// Reserve-space toggle: keeps the element's height as a placeholder when off.
+function reserve(elem, show) {
+  elem.classList.toggle('is-hidden', !show);
+}
+
+// Size the (square) wheel to fit whatever vertical space the slot has left.
+function fitWheel() {
+  if (!el.wheelSlot) return;
+  const size = Math.max(
+    120,
+    Math.floor(Math.min(el.wheelSlot.clientWidth, el.wheelSlot.clientHeight))
+  );
+  el.wheelWrap.style.width = `${size}px`;
+  el.wheelWrap.style.height = `${size}px`;
 }
 
 async function getJSON(url) {
@@ -170,6 +189,7 @@ function eventToMatch(ev) {
     title: title || 'Match',
     sections,
     endDate: ev.endDate || (markets[0] && markets[0].endDate) || null,
+    description: (ev.description || (markets[0] && markets[0].description) || '').trim(),
   };
 }
 
@@ -286,6 +306,7 @@ function selectMatch(index) {
   state.rotation = 0;
   hideResult(); // clear any previous result on a different selection
   renderLegend();
+  renderDescription();
   drawWheel();
   el.spin.disabled = false;
   el.oddsSource.textContent = `Odds: Polymarket · ${state.current.title}`;
@@ -303,7 +324,14 @@ function renderLegend() {
       `<span class="legend__pct">${pct(s.prob)}</span>`;
     el.legend.appendChild(item);
   });
-  el.legend.hidden = false;
+  reserve(el.legend, true);
+}
+
+function renderDescription() {
+  const desc = state.current && state.current.description;
+  el.matchDesc.textContent = desc || '';
+  el.matchDesc.scrollTop = 0;
+  reserve(el.matchDesc, !!desc);
 }
 
 function escapeHtml(str) {
@@ -451,18 +479,20 @@ function announceWinner() {
   const winner = winnerAtPointer();
   el.resultText.textContent = `${winner.label} · ${pct(winner.prob)}`;
   el.resultText.style.color = winner.color;
-  el.result.hidden = false;
+  reserve(el.result, true);
 }
 
 function hideResult() {
-  el.result.hidden = true;
+  reserve(el.result, false);
 }
 
 /* ------------------------------ STARTUP ---------------------------------- */
 async function init() {
+  fitWheel();
   drawPlaceholder();
   hideResult();
-  el.legend.hidden = true;
+  reserve(el.legend, false);
+  reserve(el.matchDesc, false);
   el.spin.disabled = true;
   el.select.disabled = true;
   el.select.innerHTML = '<option>Loading matches…</option>';
@@ -480,7 +510,10 @@ async function init() {
       return;
     }
     populateSelect();
-    setStatus(`${matches.length} match(es) available.`, 'ok');
+    setStatus(
+      `Loaded ${matches.length} World Cup markets — pick one and spin.`,
+      'ok'
+    );
     selectMatch(0);
   } catch (err) {
     console.error(err);
@@ -514,4 +547,8 @@ el.refresh.addEventListener('click', () => {
   init();
 });
 
+window.addEventListener('resize', fitWheel);
+
+fitWheel();
+requestAnimationFrame(fitWheel); // re-fit once layout/fonts have settled
 init();
