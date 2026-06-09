@@ -32,7 +32,14 @@ const CONFIG = {
   // paste your code (the part of the image URL after "/count2/") below, OR
   // paste the full image URL in `src` to keep your chosen style.
   analytics: {
-    flagCounter: { code: '', src: '' },
+    flagCounter: {
+      code: 'hwP4',
+      src:
+        'https://s05.flagcounter.com/countxl/hwP4/bg_000000/txt_FFFFFF' +
+        '/border_CCCCCC/columns_3/maxflags_15/viewers_3/labels_0' +
+        '/pageviews_1/flags_0/percent_1/',
+      href: 'https://info.flagcounter.com/hwP4',
+    },
   },
 };
 
@@ -567,14 +574,19 @@ function buildStats() {
     img.alt = 'Visitor flag counter';
     img.loading = 'eager';
     const link = document.createElement('a');
-    link.href = 'https://flagcounter.com';
+    link.href = fc.href || 'https://flagcounter.com';
     link.target = '_blank';
     link.rel = 'noopener';
     link.appendChild(img);
-    const note = document.createElement('p');
-    note.className = 'stats-card__note';
-    note.textContent = 'Traffic stats via Flag Counter.';
-    body.replaceChildren(link, note);
+    const privacy = document.createElement('p');
+    privacy.className = 'stats-privacy';
+    privacy.innerHTML =
+      'This site uses <a href="https://flagcounter.com" target="_blank" ' +
+      'rel="noopener">Flag Counter</a> to show aggregate visits and visitor ' +
+      'countries. It processes your IP address to derive your country; it is ' +
+      'not used to identify you and no data is sold. Browsing implies ' +
+      'acceptance of this anonymous, aggregate measurement.';
+    body.replaceChildren(link, privacy);
   } else {
     body.innerHTML =
       '<p class="stats-setup">To show visits and countries here:<br>' +
