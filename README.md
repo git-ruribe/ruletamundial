@@ -58,10 +58,12 @@ python3 -m http.server 8000
 - **Loading splash**: a spinner overlays the wheel while odds are fetched
   (the full World Cup payload can take a few seconds).
 - **Blocked / offline handling**: requests use a 10s timeout (so a blocked or
-  blackholed connection fails fast instead of hanging). On failure a friendly
-  overlay explains that Polymarket is geo-blocked in some countries/networks
-  (e.g. Switzerland, France, the US) and suggests another network or a VPN, with
-  a Retry button.
+  blackholed connection fails fast instead of hanging). Each request tries
+  Polymarket directly first and, if a proxy is configured (`CONFIG.proxyBase`),
+  falls back to it — see [`proxy/`](./proxy) for a free Cloudflare Worker that
+  lets geo-blocked visitors (e.g. Switzerland) still load the odds. Only if both
+  fail does a friendly overlay appear (explaining the block, suggesting another
+  network or a VPN) with a Retry button.
 - **Fixed layout**: everything fits within one viewport (`100dvh`, no page
   scroll); the wheel is sized by JS to the leftover space, and toggled
   components (legend, description, result) reserve their height as
