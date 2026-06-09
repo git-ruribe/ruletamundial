@@ -67,6 +67,7 @@
       <div class="controls__labelrow">
         <label for="match-select" class="controls__label">Match</label>
         <span id="live-badge" class="live-chip" hidden>LIVE</span>
+        <button id="why-open" class="why-btn" hidden>🧠 Why these odds?</button>
       </div>
       <div class="controls__row">
         <select id="match-select" class="controls__select" disabled>
@@ -141,6 +142,19 @@
         through. The odds are real; the surprises are too. ⚽
       </p>
     </div>
+  </aside>
+
+  <!-- "Why these odds?" modal: Polymarket's generated context for the match -->
+  <div id="why-backdrop" class="modal-backdrop" hidden></div>
+  <aside id="why-card" class="why-card" aria-label="Why these odds">
+    <button id="why-close" class="why-card__close" aria-label="Close">×</button>
+    <span class="why-card__kicker">🧠 Why these odds?</span>
+    <h2 id="why-title" class="why-card__title"></h2>
+    <p id="why-body" class="why-card__body"></p>
+    <p id="why-updated" class="why-card__meta" hidden></p>
+    <p class="why-card__src">
+      Auto-generated context from Polymarket. Informational only — not advice.
+    </p>
   </aside>
 
   <!-- Visitor stats: docked side panel on desktop, (i) modal on mobile -->

@@ -47,6 +47,10 @@ python3 -m http.server 8000
   deceleration, and the winner is the sector under the pointer. Each sector
   shows the team flag (`teams[].logo`), name and percentage directly on the
   wheel — there is no separate legend.
+- **Why these odds?**: a discreet button next to the match selector opens a
+  modal with Polymarket's generated context (`eventMetadata.context_description`)
+  explaining the reasoning behind the implied probabilities, plus when that
+  analysis was last generated. Hidden for matches without context.
 - **Live updates**: matches whose kick-off (UTC `startTime`) has passed are
   flagged **LIVE**; while any game is live the odds re-fetch every 30s and the
   footer shows the last-updated time in the viewer's local timezone. Resolved
