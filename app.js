@@ -22,10 +22,14 @@ const CONFIG = {
   worldCupKeywords: ['world cup', 'fifa world cup', 'mundial', 'wc 2026'],
   // How many events to request per tag.
   eventLimit: 300,
-  // Tags that are NOT 1-X-2 matches (outrights/props) — discarded.
+  // Titles that are NOT a full-time match result (props / outrights / sub-markets)
+  // — discarded. The real 1-X-2 event is titled plainly "Team A vs. Team B".
   excludeKeywords: [
-    'winner', 'group', 'top scorer', 'golden', 'player to', 'to advance',
-    'to win the', 'champion', 'golden boot', 'to qualify', 'to reach',
+    'h2h', 'goals', 'goal contribution', 'contribution', 'to score', 'scorer',
+    'winner', 'group', 'golden', 'player', 'to advance', 'to win the',
+    'champion', 'to qualify', 'to reach', 'mvp', 'assist', 'clean sheet',
+    'booking', 'exact score', 'halftime', 'half-time', 'more markets',
+    'both teams', 'total goals',
   ],
   // Public visitor widget (visits + countries). Uses Flag Counter — a static,
   // backend-less embed. Create a free counter at https://flagcounter.com and
@@ -45,6 +49,10 @@ const CONFIG = {
 
 // Only treat an event as a match when its title looks like "A vs B".
 const MATCH_TITLE_RE = /\s+v(?:s)?\.?\s+/i;
+// Polymarket splits each game into sub-markets via a " - <suffix>" title
+// ("- Exact Score", "- Halftime Result", "- More Markets", …). The plain
+// "Team A vs. Team B" event (no such suffix) is the full-time 1-X-2 result.
+const SUBMARKET_RE = / - \S/;
 // Recognize the "draw" section.
 const DRAW_RE = /\b(draw|tie|empate|x)\b/i;
 // Recognize binary Yes/No outcomes.
@@ -187,8 +195,9 @@ function matchesWorldCup(ev) {
 // Extract {label, prob} sections from a match event, or null if not a match.
 function eventToMatch(ev) {
   const title = (ev.title || '').trim();
-  // Keep only head-to-head matches ("A vs B"), not outrights/props.
-  if (!MATCH_TITLE_RE.test(title) || excluded(title)) return null;
+  // Keep only the full-time match result event: "Team A vs. Team B" with no
+  // " - <suffix>" sub-market and no prop/outright keyword.
+  if (!MATCH_TITLE_RE.test(title) || SUBMARKET_RE.test(title) || excluded(title)) return null;
 
   const markets = (ev.markets || []).filter(
     (m) => m && m.outcomes && (m.active !== false) && (m.closed !== true)
@@ -265,7 +274,9 @@ function normalize(sections) {
     let color;
     if (isDraw) color = COLORS.draw;
     else color = i === sections.length - 1 ? COLORS.team2 : COLORS.team1;
-    return { label: s.label, prob, color };
+    // Clean up Polymarket's verbose draw label "Draw (A vs. B)" → "Draw".
+    const label = isDraw ? 'Draw' : s.label;
+    return { label, prob, color };
   });
 }
 
@@ -525,7 +536,7 @@ async function init() {
     }
     populateSelect();
     setStatus(
-      `Loaded ${matches.length} World Cup markets — pick one and spin.`,
+      `Loaded ${matches.length} World Cup match(es) — pick one and spin.`,
       'ok'
     );
     selectMatch(0);
