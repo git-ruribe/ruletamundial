@@ -44,7 +44,13 @@ python3 -m http.server 8000
   the event's `teams[].logo` and are shown on the wheel and legend.
 - **Wheel**: drawn on a `<canvas>`; each sector's angular sweep is
   `prob × 360°`. The spin uses `requestAnimationFrame` with easeOutCubic
-  deceleration, and the winner is the sector under the pointer.
+  deceleration, and the winner is the sector under the pointer. Sectors show
+  only team flags (`teams[].logo`); names and percentages live in the legend to
+  avoid cramped, redundant on-wheel text.
+- **Live updates**: matches whose kick-off (UTC `startTime`) has passed are
+  flagged **LIVE**; while any game is live the odds re-fetch every 30s and the
+  footer shows the last-updated time in the viewer's local timezone. Resolved
+  games drop out automatically (the API only returns `closed=false`).
 - **Loading splash**: a spinner overlays the wheel while odds are fetched
   (the full World Cup payload can take a few seconds).
 - **Fixed layout**: everything fits within one viewport (`100dvh`, no page
