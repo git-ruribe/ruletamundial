@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /explorer.html
+
+Sitemap: https://gonnafind.com/sitemap.xml

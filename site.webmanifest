@@ -1,0 +1,16 @@
+{
+  "name": "World Cup Wheel",
+  "short_name": "WC Wheel",
+  "description": "A probability wheel for 2026 FIFA World Cup matches, sized by live Polymarket odds.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "lang": "en",
+  "categories": ["sports", "games", "entertainment"],
+  "icons": [
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" }
+  ]
+}
