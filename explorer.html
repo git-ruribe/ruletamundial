@@ -153,26 +153,25 @@
       const hideProps = $('hideprops').checked;
       const order = $('order').value;
       const ascending = $('asc').checked ? 'true' : 'false';
-      setStatus('Resolving tag “' + slug + '”…');
+      // Query the same tags the wheel uses (team matches live under
+      // 2026-fifa-world-cup / fifa-world-cup, NOT the legacy world-cup tag).
+      const slugs = [...new Set([slug, ...WHEEL.tagSlugs].filter(Boolean))];
+      setStatus('Resolving tags: ' + slugs.join(', ') + '…');
       const t0 = performance.now();
 
-      let url, events;
-      const tagId = await resolveTag(slug);
-      if (tagId) {
-        url = GAMMA + '/events?' + new URLSearchParams({ closed:'false', limit, order, ascending, related_tags:'true', tag_id: tagId });
-      } else {
-        // fallback: keyword scan
-        url = GAMMA + '/events?' + new URLSearchParams({ closed:'false', limit:'500', order, ascending });
+      let events = [];
+      const usedUrls = [];
+      for (const s of slugs) {
+        const id = await resolveTag(s);
+        if (!id) continue;
+        const u = GAMMA + '/events?' + new URLSearchParams({ closed:'false', limit, order, ascending, related_tags:'true', tag_id: id });
+        usedUrls.push(u);
+        try { const e = await getJSON(u); if (Array.isArray(e)) events.push(...e); } catch (err) {}
       }
-      try {
-        events = await getJSON(url);
-      } catch (e) { setStatus('Error: ' + e.message, 'err'); return; }
+      // Dedupe by event id.
+      const seenIds = new Set();
+      events = events.filter(ev => { if (seenIds.has(ev.id)) return false; seenIds.add(ev.id); return true; });
 
-      if (!Array.isArray(events)) events = [];
-      if (!tagId) {
-        const kw = ['world cup','fifa world cup','mundial'];
-        events = events.filter(ev => JSON.stringify([ev.title, ev.slug, (ev.tags||[]).map(t=>t.slug+' '+t.label)]).toLowerCase().split('"').some(s=>kw.some(k=>s.includes(k))));
-      }
       if (hideProps) events = events.filter(ev => !PROP_RE.test(ev.title||''));
       if (onlyVs) events = events.filter(ev => MATCH_VS.test(ev.title||''));
 
@@ -182,7 +181,7 @@
 
       lastEvents = events;
       const ms = Math.round(performance.now()-t0);
-      setStatus((tagId?('tag_id='+tagId+' · '):'(fallback keyword scan) ') + events.length + ' event(s) · ' + ms + 'ms · ' + url, 'ok');
+      setStatus(slugs.length + ' tag(s) · ' + events.length + ' event(s) · ' + ms + 'ms', 'ok');
       $('raw-out').textContent = JSON.stringify(events.slice(0,3), null, 2);
       renderSummary(events);
       buildDiagnostics(events);
