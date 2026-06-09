@@ -13,7 +13,10 @@
     </header>
 
     <section class="controls">
-      <label for="match-select" class="controls__label">Match</label>
+      <div class="controls__labelrow">
+        <label for="match-select" class="controls__label">Match</label>
+        <span id="live-badge" class="live-chip" hidden>LIVE</span>
+      </div>
       <div class="controls__row">
         <select id="match-select" class="controls__select" disabled>
           <option>Loading matches…</option>
@@ -53,9 +56,9 @@
       <button id="edu-open" class="edu-link">
         🎲 Favorites lose too — why <em>any</em> team can win →
       </button>
-      <span id="odds-source" class="odds-source"></span>
+      <span id="last-updated" class="last-updated"></span>
       <span class="disclaimer">
-        Data from Polymarket (Gamma API). For entertainment purposes only.
+        Polymarket odds · For entertainment only.
       </span>
     </footer>
   </main>

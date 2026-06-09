@@ -66,7 +66,8 @@ const el = {
   legend: document.getElementById('legend'),
   result: document.getElementById('result'),
   resultText: document.getElementById('result-text'),
-  oddsSource: document.getElementById('odds-source'),
+  liveBadge: document.getElementById('live-badge'),
+  lastUpdated: document.getElementById('last-updated'),
   loading: document.getElementById('loading'),
   canvas: document.getElementById('wheel'),
   wheelWrap: document.querySelector('.wheel-wrap'),
@@ -215,8 +216,10 @@ function eventToMatch(ev) {
 
   raw.sort((a, b) => a.order - b.order);
   return {
+    id: ev.id,
     title: (ev.title || '').trim() || 'Match',
     sections: normalize(raw),
+    startTime: ev.startTime || ev.endDate || null,
     endDate: ev.endDate || ev.startTime || null,
   };
 }
@@ -238,6 +241,18 @@ function normalize(sections) {
 function endTime(match) {
   const t = match.endDate ? Date.parse(match.endDate) : NaN;
   return Number.isNaN(t) ? Infinity : t;
+}
+
+// A match is "live" once its kickoff (startTime, in UTC) has passed and it is
+// still listed (Polymarket drops resolved games). Capped to a ~3h window so a
+// stale unresolved game doesn't stay "live" forever. All math is epoch-based,
+// so it is correct regardless of the viewer's timezone.
+const LIVE_WINDOW_MS = 3 * 60 * 60 * 1000;
+function isLive(match) {
+  const s = match && match.startTime ? Date.parse(match.startTime) : NaN;
+  if (Number.isNaN(s)) return false;
+  const now = Date.now();
+  return now >= s && now < s + LIVE_WINDOW_MS;
 }
 
 async function loadMatches() {
@@ -266,7 +281,19 @@ async function loadMatches() {
   matches.sort((a, b) => endTime(a) - endTime(b));
 
   state.matches = matches;
+  state.lastUpdated = Date.now();
+  renderUpdated();
   return matches;
+}
+
+// Footer line: when the odds were last fetched, in the viewer's local time.
+function renderUpdated() {
+  if (!state.lastUpdated) { el.lastUpdated.textContent = ''; return; }
+  const when = new Date(state.lastUpdated).toLocaleString([], {
+    month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  el.lastUpdated.textContent = `Updated ${when}`;
 }
 
 /* ----------------------------- DROPDOWN ---------------------------------- */
@@ -275,10 +302,23 @@ function populateSelect() {
   state.matches.forEach((m, i) => {
     const opt = document.createElement('option');
     opt.value = String(i);
-    opt.textContent = m.title;
+    opt.textContent = (isLive(m) ? '🔴 ' : '') + m.title;
     el.select.appendChild(opt);
   });
   el.select.disabled = false;
+}
+
+// Refresh the live prefixes/badge without refetching (cheap, runs every tick).
+function refreshLiveLabels() {
+  Array.from(el.select.options).forEach((opt, i) => {
+    const m = state.matches[i];
+    if (m) opt.textContent = (isLive(m) ? '🔴 ' : '') + m.title;
+  });
+  updateLiveBadge();
+}
+
+function updateLiveBadge() {
+  el.liveBadge.hidden = !(state.current && isLive(state.current));
 }
 
 function selectMatch(index) {
@@ -289,7 +329,7 @@ function selectMatch(index) {
   renderLegend();
   drawWheel();
   el.spin.disabled = false;
-  el.oddsSource.textContent = `Odds: Polymarket · ${state.current.title}`;
+  updateLiveBadge();
 }
 
 function renderLegend() {
@@ -396,40 +436,28 @@ function drawWheel() {
   ctx.stroke();
 }
 
+// The wheel shows only team flags (names + percentages live in the legend,
+// so on-wheel text would be redundant and cramped on mobile). The draw sector
+// has no flag; its gray slice + the legend identify it.
 function drawSectorLabel(r, start, end, section) {
   const sweep = end - start;
-  if (sweep <= 0.16) return; // sector too small to label
-  const mid = -Math.PI / 2 + start + sweep / 2;
-  const dist = r * 0.6;
+  if (sweep <= 0.12) return; // sliver too thin
   const img = section.logo ? getLogo(section.logo) : null;
+  if (!img) return;
 
+  const mid = -Math.PI / 2 + start + sweep / 2;
+  const dist = r * 0.62;
   ctx.save();
   ctx.rotate(mid);
   ctx.translate(dist, 0);
-  // Counter-rotate so the flag and text stay upright regardless of the
-  // wheel's spin or which side of the circle the sector is on.
+  // Counter-rotate so the flag stays upright regardless of spin or side.
   ctx.rotate(-(state.rotation + mid));
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0,0,0,0.55)';
-  ctx.shadowBlur = 4;
-
-  if (img) {
-    const fw = 40;
-    const fh = Math.min(34, fw * (img.height / img.width || 0.66));
-    ctx.drawImage(img, -fw / 2, -fh - 6, fw, fh);
-  }
-  const yLabel = img ? 14 : -9;
-  ctx.fillStyle = '#fff';
-  ctx.font = '600 18px system-ui, sans-serif';
-  ctx.fillText(fit(section.label, 14), 0, yLabel);
-  ctx.font = '700 15px system-ui, sans-serif';
-  ctx.fillText(pct(section.prob), 0, yLabel + 21);
+  const fw = Math.min(54, r * 0.26);
+  const fh = fw * (img.height / img.width || 0.66);
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 6;
+  ctx.drawImage(img, -fw / 2, -fh / 2, fw, fh);
   ctx.restore();
-}
-
-function fit(text, max) {
-  return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
 
 /* ------------------------------- SPIN ------------------------------------ */
@@ -517,6 +545,7 @@ async function init() {
       'ok'
     );
     selectMatch(0);
+    scheduleLive();
   } catch (err) {
     console.error(err);
     el.select.innerHTML = '<option>Error</option>';
@@ -527,6 +556,41 @@ async function init() {
   } finally {
     showLoading(false);
   }
+}
+
+/* ------------------------------ LIVE POLL -------------------------------- */
+let liveTimer = null;
+
+// Every 30s: refresh live badges cheaply; if a game is live, re-fetch odds.
+function scheduleLive() {
+  if (liveTimer) clearInterval(liveTimer);
+  liveTimer = setInterval(onLiveTick, 30000);
+}
+
+async function onLiveTick() {
+  refreshLiveLabels(); // a match may have just kicked off — update badges
+  if (state.spinning) return;
+  if (state.matches.some(isLive)) await refreshLive();
+}
+
+// Re-fetch odds without disturbing the current spin/selection/rotation.
+async function refreshLive() {
+  const prevId = state.current && state.current.id;
+  try {
+    await loadMatches();
+  } catch {
+    return; // transient network error — keep showing what we have
+  }
+  if (!state.matches.length) return;
+  populateSelect();
+  let idx = state.matches.findIndex((m) => m.id === prevId);
+  if (idx < 0) idx = 0;
+  el.select.value = String(idx);
+  state.current = state.matches[idx];
+  preloadLogos(state.current.sections);
+  renderLegend();
+  drawWheel();
+  updateLiveBadge();
 }
 
 function drawPlaceholder() {
