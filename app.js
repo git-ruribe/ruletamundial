@@ -75,6 +75,9 @@ const el = {
   whyBody: document.getElementById('why-body'),
   whyUpdated: document.getElementById('why-updated'),
   loading: document.getElementById('loading'),
+  loadError: document.getElementById('load-error'),
+  loadErrorText: document.getElementById('load-error-text'),
+  retry: document.getElementById('retry-btn'),
   canvas: document.getElementById('wheel'),
   wheelWrap: document.querySelector('.wheel-wrap'),
   wheelSlot: document.querySelector('.wheel-slot'),
@@ -89,6 +92,14 @@ function setStatus(msg, kind = '') {
 
 function showLoading(show) {
   el.loading.hidden = !show;
+  if (show) el.loadError.hidden = true;
+}
+
+// Friendly, centered error overlay (with a Retry button) over the wheel.
+function showError(html) {
+  el.loading.hidden = true;
+  el.loadErrorText.innerHTML = html;
+  el.loadError.hidden = false;
 }
 
 // Reserve-space toggle: keeps the element's height as a placeholder when off.
@@ -107,10 +118,21 @@ function fitWheel() {
   el.wheelWrap.style.height = `${size}px`;
 }
 
-async function getJSON(url) {
-  const res = await fetch(url, { headers: { accept: 'application/json' } });
-  if (!res.ok) throw new Error(`HTTP ${res.status} at ${url}`);
-  return res.json();
+// Fetch JSON with a hard timeout so a blocked/blackholed request (e.g. where
+// Polymarket is geo-blocked) fails fast instead of hanging forever.
+async function getJSON(url, timeoutMs = 10000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      headers: { accept: 'application/json' },
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} at ${url}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // outcomes / outcomePrices arrive as a JSON string or already as an array.
@@ -133,16 +155,17 @@ function pct(p) {
 
 /* --------------------------- DATA LAYER ---------------------------------- */
 
-// Resolve the World Cup tag ids from their slugs.
+// Resolve the World Cup tag ids from their slugs (in parallel, so a blocked
+// network fails in one timeout window rather than several).
 async function resolveTagIds() {
+  const results = await Promise.allSettled(
+    CONFIG.worldCupTagSlugs.map((slug) =>
+      getJSON(`${CONFIG.gamma}/tags/slug/${slug}`)
+    )
+  );
   const ids = [];
-  for (const slug of CONFIG.worldCupTagSlugs) {
-    try {
-      const tag = await getJSON(`${CONFIG.gamma}/tags/slug/${slug}`);
-      if (tag && tag.id) ids.push(String(tag.id));
-    } catch {
-      /* the tag may not exist; keep trying the rest */
-    }
+  for (const r of results) {
+    if (r.status === 'fulfilled' && r.value && r.value.id) ids.push(String(r.value.id));
   }
   return [...new Set(ids)];
 }
@@ -265,15 +288,24 @@ function isLive(match) {
 
 async function loadMatches() {
   let events = [];
+  let reached = false; // did any request to Polymarket actually succeed?
   const tagIds = await resolveTagIds();
-  for (const id of tagIds) {
-    try {
-      events.push(...(await fetchEventsByTag(id)));
-    } catch (e) {
-      console.warn('tag fetch failed', id, e);
+  if (tagIds.length) reached = true;
+
+  const fetched = await Promise.allSettled(tagIds.map((id) => fetchEventsByTag(id)));
+  for (const r of fetched) {
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+      events.push(...r.value);
+      reached = true;
     }
   }
-  if (!events.length) events = await fetchEventsFallback();
+  // If tags couldn't be resolved/fetched, try the open fallback query. Letting
+  // it throw here surfaces a real connectivity/geo-block error to the caller.
+  if (!events.length) {
+    events = await fetchEventsFallback();
+    reached = true;
+  }
+  if (!reached) throw new Error('NETWORK');
 
   // Dedupe by event id.
   const seen = new Set();
@@ -577,10 +609,14 @@ async function init() {
     scheduleLive();
   } catch (err) {
     console.error(err);
-    el.select.innerHTML = '<option>Error</option>';
-    setStatus(
-      `Could not reach Polymarket: ${err.message}. Check your connection and refresh.`,
-      'error'
+    el.select.innerHTML = '<option>Unavailable</option>';
+    el.select.disabled = true;
+    setStatus('');
+    showError(
+      '<strong>We couldn’t load the odds.</strong><br>' +
+      'Polymarket is blocked in some countries and networks ' +
+      '(for example Switzerland, France and the US). If you’re in one of them, ' +
+      'try a different network or a VPN — otherwise check your connection.'
     );
   } finally {
     showLoading(false);
@@ -724,6 +760,10 @@ function wireEduModal() {
 el.select.addEventListener('change', (e) => selectMatch(Number(e.target.value)));
 el.spin.addEventListener('click', spin);
 el.refresh.addEventListener('click', () => {
+  if (state.spinning) return;
+  init();
+});
+el.retry.addEventListener('click', () => {
   if (state.spinning) return;
   init();
 });

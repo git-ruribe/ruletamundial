@@ -57,6 +57,11 @@ python3 -m http.server 8000
   games drop out automatically (the API only returns `closed=false`).
 - **Loading splash**: a spinner overlays the wheel while odds are fetched
   (the full World Cup payload can take a few seconds).
+- **Blocked / offline handling**: requests use a 10s timeout (so a blocked or
+  blackholed connection fails fast instead of hanging). On failure a friendly
+  overlay explains that Polymarket is geo-blocked in some countries/networks
+  (e.g. Switzerland, France, the US) and suggests another network or a VPN, with
+  a Retry button.
 - **Fixed layout**: everything fits within one viewport (`100dvh`, no page
   scroll); the wheel is sized by JS to the leftover space, and toggled
   components (legend, description, result) reserve their height as
