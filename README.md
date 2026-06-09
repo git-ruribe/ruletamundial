@@ -45,8 +45,6 @@ python3 -m http.server 8000
 - **Wheel**: drawn on a `<canvas>`; each sector's angular sweep is
   `prob × 360°`. The spin uses `requestAnimationFrame` with easeOutCubic
   deceleration, and the winner is the sector under the pointer.
-- **Match description**: the selected market's description (resolution
-  criteria) is shown below the legend.
 - **Loading splash**: a spinner overlays the wheel while odds are fetched
   (the full World Cup payload can take a few seconds).
 - **Fixed layout**: everything fits within one viewport (`100dvh`, no page

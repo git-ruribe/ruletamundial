@@ -243,24 +243,6 @@ html, body {
 
 .legend__pct { color: var(--muted); font-variant-numeric: tabular-nums; }
 
-/* Match description (fixed-height placeholder, scrolls if long) */
-.match-desc {
-  flex: none;
-  width: 100%;
-  max-width: 56ch;
-  height: clamp(3.2em, 11vh, 5.5em);
-  overflow-y: auto;
-  margin: 0;
-  padding: 10px 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.45;
-  text-align: left;
-}
-
 /* Result (reserved height placeholder) */
 .result {
   flex: none;
