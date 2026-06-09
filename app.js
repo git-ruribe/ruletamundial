@@ -18,8 +18,8 @@ const CONFIG = {
   gamma: 'https://gamma-api.polymarket.com',
   // Fallback proxy for regions where Polymarket is geo-blocked (e.g. Switzerland).
   // Deploy proxy/worker.js to Cloudflare and paste its URL here (no trailing
-  // slash), e.g. 'https://wc-proxy.yoursubdomain.workers.dev'. Leave '' to disable.
-  proxyBase: '',
+  // slash). Leave '' to disable.
+  proxyBase: 'https://wc-proxy.zcv25kyj7b.workers.dev',
   // Candidate World Cup tag slugs (tried in order).
   worldCupTagSlugs: ['world-cup', '2026-fifa-world-cup', 'fifa-world-cup'],
   // Fallback keywords to recognize the World Cup in tags/title/slug.
