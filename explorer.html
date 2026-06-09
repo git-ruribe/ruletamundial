@@ -102,8 +102,12 @@
 
   <div class="row">
     <button class="primary" id="copydiag">📋 Copy diagnostics for Claude</button>
+    <button id="copyraw">📋 Copy FULL raw events (untrimmed)</button>
+    <label>events</label>
+    <input id="rawn" type="number" value="4" style="width:70px" />
     <span id="copystatus" class="hint"></span>
   </div>
+  <p class="hint">“FULL raw” copies every field of the first N loaded events (no trimming) — use it to spot a structural field that identifies the 1-X-2 result market.</p>
   <textarea id="diag" readonly placeholder="Diagnostics summary will appear here…"></textarea>
 
   <h3>Summary</h3>
@@ -340,10 +344,17 @@
     $('inspect').addEventListener('click', inspectEvent);
     $('runraw').addEventListener('click', runRaw);
     document.querySelectorAll('.pills button').forEach(b => b.addEventListener('click', () => { $('slug').value = b.dataset.slug; loadMatches(); }));
-    $('copydiag').addEventListener('click', async () => {
+    async function copyText(text, okMsg) {
+      $('diag').value = text;
       const t = $('diag'); t.select();
-      try { await navigator.clipboard.writeText(t.value); $('copystatus').textContent = 'Copied! Paste it back to Claude.'; }
+      try { await navigator.clipboard.writeText(text); $('copystatus').textContent = okMsg; }
       catch { document.execCommand('copy'); $('copystatus').textContent = 'Selected — press Ctrl/Cmd+C.'; }
+    }
+    $('copydiag').addEventListener('click', () => copyText($('diag').value, 'Copied! Paste it back to Claude.'));
+    $('copyraw').addEventListener('click', () => {
+      const n = Math.max(1, parseInt($('rawn').value, 10) || 4);
+      const full = JSON.stringify(lastEvents.slice(0, n), null, 2);
+      copyText(full, 'Copied FULL raw of ' + Math.min(n, lastEvents.length) + ' event(s).');
     });
 
     // Auto-run once on load.
