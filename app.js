@@ -64,7 +64,6 @@ const el = {
   status: document.getElementById('status'),
   spin: document.getElementById('spin-btn'),
   legend: document.getElementById('legend'),
-  matchDesc: document.getElementById('match-desc'),
   result: document.getElementById('result'),
   resultText: document.getElementById('result-text'),
   oddsSource: document.getElementById('odds-source'),
@@ -219,7 +218,6 @@ function eventToMatch(ev) {
     title: (ev.title || '').trim() || 'Match',
     sections: normalize(raw),
     endDate: ev.endDate || ev.startTime || null,
-    description: (ev.description || '').trim(),
   };
 }
 // Remove the "vig": rescale probabilities to sum to 1 and assign colors.
@@ -289,7 +287,6 @@ function selectMatch(index) {
   hideResult(); // clear any previous result on a different selection
   preloadLogos(state.current.sections);
   renderLegend();
-  renderDescription();
   drawWheel();
   el.spin.disabled = false;
   el.oddsSource.textContent = `Odds: Polymarket · ${state.current.title}`;
@@ -311,13 +308,6 @@ function renderLegend() {
     el.legend.appendChild(item);
   });
   reserve(el.legend, true);
-}
-
-function renderDescription() {
-  const desc = state.current && state.current.description;
-  el.matchDesc.textContent = desc || '';
-  el.matchDesc.scrollTop = 0;
-  reserve(el.matchDesc, !!desc);
 }
 
 function escapeHtml(str) {
@@ -505,7 +495,6 @@ async function init() {
   drawPlaceholder();
   hideResult();
   reserve(el.legend, false);
-  reserve(el.matchDesc, false);
   el.spin.disabled = true;
   el.select.disabled = true;
   el.select.innerHTML = '<option>Loading matches…</option>';
