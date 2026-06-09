@@ -63,7 +63,6 @@ const el = {
   refresh: document.getElementById('refresh-btn'),
   status: document.getElementById('status'),
   spin: document.getElementById('spin-btn'),
-  legend: document.getElementById('legend'),
   result: document.getElementById('result'),
   resultText: document.getElementById('result-text'),
   liveBadge: document.getElementById('live-badge'),
@@ -326,34 +325,9 @@ function selectMatch(index) {
   state.rotation = 0;
   hideResult(); // clear any previous result on a different selection
   preloadLogos(state.current.sections);
-  renderLegend();
   drawWheel();
   el.spin.disabled = false;
   updateLiveBadge();
-}
-
-function renderLegend() {
-  const m = state.current;
-  el.legend.innerHTML = '';
-  m.sections.forEach((s) => {
-    const item = document.createElement('span');
-    item.className = 'legend__item';
-    const badge = s.logo
-      ? `<img class="legend__flag" src="${s.logo}" alt="" />`
-      : `<span class="legend__swatch" style="background:${s.color}"></span>`;
-    item.innerHTML =
-      badge +
-      `<span>${escapeHtml(s.label)}</span>` +
-      `<span class="legend__pct">${pct(s.prob)}</span>`;
-    el.legend.appendChild(item);
-  });
-  reserve(el.legend, true);
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }
 
 /* ------------------------------ TEAM FLAGS ------------------------------- */
@@ -436,28 +410,42 @@ function drawWheel() {
   ctx.stroke();
 }
 
-// The wheel shows only team flags (names + percentages live in the legend,
-// so on-wheel text would be redundant and cramped on mobile). The draw sector
-// has no flag; its gray slice + the legend identify it.
+// Each sector shows the team flag, name and percentage (the legend below the
+// wheel was removed, so everything the viewer needs is on the wheel itself).
 function drawSectorLabel(r, start, end, section) {
   const sweep = end - start;
-  if (sweep <= 0.12) return; // sliver too thin
-  const img = section.logo ? getLogo(section.logo) : null;
-  if (!img) return;
-
+  if (sweep <= 0.16) return; // sector too small to label
   const mid = -Math.PI / 2 + start + sweep / 2;
-  const dist = r * 0.62;
+  const dist = r * 0.6;
+  const img = section.logo ? getLogo(section.logo) : null;
+
   ctx.save();
   ctx.rotate(mid);
   ctx.translate(dist, 0);
-  // Counter-rotate so the flag stays upright regardless of spin or side.
+  // Counter-rotate so the flag and text stay upright regardless of the
+  // wheel's spin or which side of the circle the sector is on.
   ctx.rotate(-(state.rotation + mid));
-  const fw = Math.min(54, r * 0.26);
-  const fh = fw * (img.height / img.width || 0.66);
-  ctx.shadowColor = 'rgba(0,0,0,0.5)';
-  ctx.shadowBlur = 6;
-  ctx.drawImage(img, -fw / 2, -fh / 2, fw, fh);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = 4;
+
+  if (img) {
+    const fw = 40;
+    const fh = Math.min(34, fw * (img.height / img.width || 0.66));
+    ctx.drawImage(img, -fw / 2, -fh - 6, fw, fh);
+  }
+  const yLabel = img ? 14 : -9;
+  ctx.fillStyle = '#fff';
+  ctx.font = '600 18px system-ui, sans-serif';
+  ctx.fillText(fit(section.label, 14), 0, yLabel);
+  ctx.font = '700 15px system-ui, sans-serif';
+  ctx.fillText(pct(section.prob), 0, yLabel + 21);
   ctx.restore();
+}
+
+function fit(text, max) {
+  return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
 
 /* ------------------------------- SPIN ------------------------------------ */
@@ -522,7 +510,6 @@ async function init() {
   fitWheel();
   drawPlaceholder();
   hideResult();
-  reserve(el.legend, false);
   el.spin.disabled = true;
   el.select.disabled = true;
   el.select.innerHTML = '<option>Loading matches…</option>';
@@ -540,10 +527,7 @@ async function init() {
       return;
     }
     populateSelect();
-    setStatus(
-      `Loaded ${matches.length} World Cup match(es) — pick one and spin.`,
-      'ok'
-    );
+    setStatus(`${matches.length} matches loaded`, 'ok');
     selectMatch(0);
     scheduleLive();
   } catch (err) {
@@ -588,7 +572,6 @@ async function refreshLive() {
   el.select.value = String(idx);
   state.current = state.matches[idx];
   preloadLogos(state.current.sections);
-  renderLegend();
   drawWheel();
   updateLiveBadge();
 }

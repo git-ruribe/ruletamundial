@@ -44,9 +44,9 @@ python3 -m http.server 8000
   the event's `teams[].logo` and are shown on the wheel and legend.
 - **Wheel**: drawn on a `<canvas>`; each sector's angular sweep is
   `prob × 360°`. The spin uses `requestAnimationFrame` with easeOutCubic
-  deceleration, and the winner is the sector under the pointer. Sectors show
-  only team flags (`teams[].logo`); names and percentages live in the legend to
-  avoid cramped, redundant on-wheel text.
+  deceleration, and the winner is the sector under the pointer. Each sector
+  shows the team flag (`teams[].logo`), name and percentage directly on the
+  wheel — there is no separate legend.
 - **Live updates**: matches whose kick-off (UTC `startTime`) has passed are
   flagged **LIVE**; while any game is live the odds re-fetch every 30s and the
   footer shows the last-updated time in the viewer's local timezone. Resolved

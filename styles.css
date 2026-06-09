@@ -243,36 +243,6 @@ html, body {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
-/* Legend (reserved height placeholder) */
-.legend {
-  flex: none;
-  min-height: 1.6em;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 4px 16px;
-  font-size: 0.88rem;
-}
-
-.legend__item { display: inline-flex; align-items: center; gap: 6px; }
-
-.legend__swatch {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
-  flex: none;
-}
-
-.legend__flag {
-  width: 20px;
-  height: 14px;
-  object-fit: cover;
-  border-radius: 2px;
-  flex: none;
-}
-
-.legend__pct { color: var(--muted); font-variant-numeric: tabular-nums; }
-
 /* Result (reserved height placeholder) */
 .result {
   flex: none;
