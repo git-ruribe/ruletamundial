@@ -486,3 +486,79 @@ html, body {
   padding-top: 10px;
   margin-bottom: 0 !important;
 }
+
+/* ----------------------- "Why these odds?" --------------------------- */
+.why-btn {
+  margin-left: auto;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.why-btn:hover { background: var(--panel-2); }
+
+.why-card {
+  position: fixed;
+  z-index: 31;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -48%);
+  width: min(92vw, 460px);
+  max-height: 85dvh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px 22px 18px;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+}
+.why-card.is-open {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+.why-card__close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.why-card__kicker {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  font-weight: 700;
+}
+.why-card__title { margin: 4px 22px 12px 0; font-size: 1.12rem; line-height: 1.25; }
+.why-card__body { margin: 0 0 12px; font-size: 0.92rem; line-height: 1.6; color: var(--text); }
+.why-card__meta {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.why-card__src {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--muted);
+  opacity: 0.8;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}

@@ -67,6 +67,13 @@ const el = {
   resultText: document.getElementById('result-text'),
   liveBadge: document.getElementById('live-badge'),
   lastUpdated: document.getElementById('last-updated'),
+  whyBtn: document.getElementById('why-open'),
+  whyCard: document.getElementById('why-card'),
+  whyBackdrop: document.getElementById('why-backdrop'),
+  whyClose: document.getElementById('why-close'),
+  whyTitle: document.getElementById('why-title'),
+  whyBody: document.getElementById('why-body'),
+  whyUpdated: document.getElementById('why-updated'),
   loading: document.getElementById('loading'),
   canvas: document.getElementById('wheel'),
   wheelWrap: document.querySelector('.wheel-wrap'),
@@ -220,6 +227,8 @@ function eventToMatch(ev) {
     sections: normalize(raw),
     startTime: ev.startTime || ev.endDate || null,
     endDate: ev.endDate || ev.startTime || null,
+    context: ((ev.eventMetadata && ev.eventMetadata.context_description) || '').trim(),
+    contextUpdated: (ev.eventMetadata && ev.eventMetadata.context_updated_at) || null,
   };
 }
 // Remove the "vig": rescale probabilities to sum to 1 and assign colors.
@@ -320,6 +329,41 @@ function updateLiveBadge() {
   el.liveBadge.hidden = !(state.current && isLive(state.current));
 }
 
+/* ----------------------- "WHY THESE ODDS?" MODAL ------------------------- */
+function updateWhyButton() {
+  el.whyBtn.hidden = !(state.current && state.current.context);
+}
+
+function openWhy() {
+  if (!state.current || !state.current.context) return;
+  el.whyTitle.textContent = state.current.title;
+  el.whyBody.textContent = state.current.context;
+  const ts = state.current.contextUpdated ? new Date(state.current.contextUpdated) : null;
+  if (ts && !Number.isNaN(ts.getTime())) {
+    el.whyUpdated.textContent = `Context updated ${ts.toLocaleString([], {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    })}`;
+    el.whyUpdated.hidden = false;
+  } else {
+    el.whyUpdated.hidden = true;
+  }
+  el.whyCard.classList.add('is-open');
+  el.whyBackdrop.hidden = false;
+}
+
+function closeWhy() {
+  el.whyCard.classList.remove('is-open');
+  el.whyBackdrop.hidden = true;
+}
+
+function wireWhyModal() {
+  if (!el.whyBtn) return;
+  el.whyBtn.addEventListener('click', openWhy);
+  el.whyClose.addEventListener('click', closeWhy);
+  el.whyBackdrop.addEventListener('click', closeWhy);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeWhy(); });
+}
+
 function selectMatch(index) {
   state.current = state.matches[index];
   state.rotation = 0;
@@ -328,6 +372,7 @@ function selectMatch(index) {
   drawWheel();
   el.spin.disabled = false;
   updateLiveBadge();
+  updateWhyButton();
 }
 
 /* ------------------------------ TEAM FLAGS ------------------------------- */
@@ -574,6 +619,7 @@ async function refreshLive() {
   preloadLogos(state.current.sections);
   drawWheel();
   updateLiveBadge();
+  updateWhyButton();
 }
 
 function drawPlaceholder() {
@@ -687,6 +733,7 @@ window.addEventListener('resize', fitWheel);
 buildStats();
 wireStatsWidget();
 wireEduModal();
+wireWhyModal();
 
 fitWheel();
 requestAnimationFrame(fitWheel); // re-fit once layout/fonts have settled
