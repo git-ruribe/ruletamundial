@@ -785,17 +785,38 @@ function confettiFrame() {
 // allows it the image loads (and is export-safe); if not it simply never loads
 // and we skip the flag. Either way the export never taints.
 const shareLogoCache = new Map();
+
+function loadCorsImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
 function getShareLogo(url) {
   if (!url) return null;
   let entry = shareLogoCache.get(url);
   if (!entry) {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    entry = { img, loaded: false };
-    img.onload = () => { entry.loaded = true; };
-    img.onerror = () => { entry.error = true; };
-    img.src = url;
+    entry = { img: null, loaded: false };
     shareLogoCache.set(url, entry);
+    // Try the CDN directly first (free, no proxy quota). Most of Polymarket's
+    // logo CDNs send no CORS header, which fails the crossOrigin load — so fall
+    // back to our Worker, which refetches the image and adds CORS so the export
+    // canvas stays clean.
+    loadCorsImage(url).then(
+      (img) => { entry.img = img; entry.loaded = true; },
+      () => {
+        if (!CONFIG.proxyBase) { entry.error = true; return; }
+        const proxied = `${CONFIG.proxyBase}/img?url=${encodeURIComponent(url)}`;
+        loadCorsImage(proxied).then(
+          (img) => { entry.img = img; entry.loaded = true; },
+          () => { entry.error = true; }
+        );
+      }
+    );
   }
   return entry.loaded ? entry.img : null;
 }
@@ -839,45 +860,67 @@ function buildShareImage(r) {
       g.fillRect(0, 0, S, S);
 
       g.textAlign = 'center';
+      let y = 132;
 
       // Wordmark
       g.fillStyle = '#ffd23f';
-      g.font = '700 46px system-ui, sans-serif';
-      g.fillText('🎡 World Cup Wheel', S / 2, 120);
+      g.font = '800 50px system-ui, sans-serif';
+      g.fillText('🎡 World Cup Wheel', S / 2, y);
+      y += 96;
 
-      // Match title
-      g.fillStyle = '#8b949e';
-      g.font = '400 34px system-ui, sans-serif';
-      wrapText(g, r.match.title, S / 2, 200, S - 160, 44);
+      // Match title — bright and large, with a soft shadow so it reads on the
+      // dark gradient (was small/low-contrast before).
+      g.save();
+      g.shadowColor = 'rgba(0, 0, 0, 0.65)';
+      g.shadowBlur = 8;
+      g.fillStyle = '#e6edf3';
+      g.font = '700 52px system-ui, sans-serif';
+      y = wrapText(g, r.match.title, S / 2, y, S - 140, 64) + 78;
+      g.restore();
 
       // Upset badge
       if (r.isUpset) {
         g.fillStyle = r.isHuge ? '#ffd23f' : '#e6edf3';
-        g.font = '800 40px system-ui, sans-serif';
-        g.fillText(r.isHuge ? '🚨 HUGE UPSET' : '😮 UPSET', S / 2, 360);
+        g.font = '800 48px system-ui, sans-serif';
+        g.fillText(r.isHuge ? '🚨 HUGE UPSET' : '😮 UPSET', S / 2, y);
+        y += 76;
       }
 
-      // Winner flag (only if a CORS-clean copy is ready — never taints export)
+      // Winner flag (only if a CORS-clean copy loaded — never taints export)
       const img = r.winner.logo ? getShareLogo(r.winner.logo) : null;
       if (img) {
-        const fw = 300;
-        const fh = Math.min(200, fw * (img.height / img.width || 0.66));
-        g.drawImage(img, (S - fw) / 2, 430, fw, fh);
+        const fw = 320;
+        const fh = Math.min(210, fw * (img.height / img.width || 0.66));
+        g.drawImage(img, (S - fw) / 2, y, fw, fh);
+        y += fh + 36;
+      } else {
+        y += 24;
       }
 
-      // Winner name + probability
+      // Winner name — shrink the font until it fits the width.
+      const name = fit(r.winner.label, 22);
+      let namePx = 108;
+      do {
+        g.font = `800 ${namePx}px system-ui, sans-serif`;
+        namePx -= 4;
+      } while (g.measureText(name).width > S - 120 && namePx > 40);
+      g.save();
+      g.shadowColor = 'rgba(0, 0, 0, 0.55)';
+      g.shadowBlur = 6;
       g.fillStyle = r.winner.color;
-      g.font = '800 96px system-ui, sans-serif';
-      g.fillText(fit(r.winner.label, 16), S / 2, 720);
+      g.fillText(name, S / 2, y + 92);
+      g.restore();
+      y += 150;
 
+      // Probability line
       g.fillStyle = '#e6edf3';
-      g.font = '600 44px system-ui, sans-serif';
-      g.fillText(`The market gave them ${pct(r.winner.prob)}`, S / 2, 800);
+      g.font = '600 46px system-ui, sans-serif';
+      g.fillText(`The market gave them ${pct(r.winner.prob)}`, S / 2, y);
 
-      // Footer
-      g.fillStyle = '#8b949e';
-      g.font = '600 38px system-ui, sans-serif';
-      g.fillText('Spin yours → gonnafind.com', S / 2, 980);
+      // Footer — pinned to the bottom, on-brand and high-contrast.
+      g.fillStyle = '#ffd23f';
+      g.font = '700 40px system-ui, sans-serif';
+      g.fillText('Spin yours → gonnafind.com', S / 2, S - 64);
 
       if (c.toBlob) c.toBlob((b) => resolve(b), 'image/png');
       else resolve(null);
@@ -893,9 +936,19 @@ function shareUrl() {
 
 function shareText(r) {
   const p = pct(r.winner.prob);
+  const teams = r.match.sections.filter((s) => !DRAW_RE.test(s.label));
+  // Draw: name both teams. Team win: name the rival it came up against.
+  if (DRAW_RE.test(r.winner.label)) {
+    const names = teams.map((t) => t.label).join(' vs ');
+    return r.isUpset
+      ? `🤝 A draw (${p}) came up in ${names} on the World Cup Wheel — the market barely backed it!`
+      : `🤝 A draw (${p}) came up in ${names} on the World Cup Wheel.`;
+  }
+  const opp = teams.find((t) => t.label !== r.winner.label);
+  const vs = opp ? ` vs ${opp.label}` : '';
   return r.isUpset
-    ? `😱 ${r.winner.label} came up on the World Cup Wheel — the market only gave them ${p}!`
-    : `🎡 ${r.winner.label} (${p}) came up on my World Cup Wheel spin.`;
+    ? `😱 ${r.winner.label} came up${vs} on the World Cup Wheel — the market only gave them ${p}!`
+    : `🎡 ${r.winner.label} (${p}) came up${vs} on my World Cup Wheel spin.`;
 }
 
 async function copyShare(text, url) {

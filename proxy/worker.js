@@ -40,6 +40,42 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    // Image passthrough: the share-card canvas needs team flags to be CORS-clean
+    // or toBlob() throws on a tainted canvas. Polymarket's logo CDNs send no CORS
+    // header, so the browser asks us to refetch the image and return it with one.
+    // Constrained on purpose: GET only, HTTPS only, image content-types only and
+    // a size cap — it forwards pictures, not arbitrary data.
+    if (url.pathname === '/img') {
+      const src = url.searchParams.get('url');
+      let imgUrl;
+      try {
+        imgUrl = new URL(src);
+      } catch {
+        return new Response('Bad url', { status: 400, headers: cors });
+      }
+      if (imgUrl.protocol !== 'https:') {
+        return new Response('Bad scheme', { status: 400, headers: cors });
+      }
+      let img;
+      try {
+        img = await fetch(imgUrl.toString(), {
+          cf: { cacheTtl: 86400, cacheEverything: true },
+        });
+      } catch {
+        return new Response('upstream_unreachable', { status: 502, headers: cors });
+      }
+      const ct = img.headers.get('content-type') || '';
+      const len = Number(img.headers.get('content-length') || 0);
+      if (!img.ok || !ct.startsWith('image/') || len > 8 * 1024 * 1024) {
+        return new Response('Not an image', { status: 415, headers: cors });
+      }
+      return new Response(img.body, {
+        status: 200,
+        headers: { ...cors, 'content-type': ct, 'cache-control': 'public, max-age=86400' },
+      });
+    }
+
     const ok = url.pathname === '/events' || url.pathname.startsWith('/tags/');
     if (!ok) {
       return new Response('Not Found', { status: 404, headers: cors });

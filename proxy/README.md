@@ -5,8 +5,14 @@ A tiny read-only proxy so visitors in regions where Polymarket is geo-blocked
 fetches from Polymarket's Gamma API on Cloudflare's network (a non-blocked IP)
 and returns the JSON with CORS headers.
 
-It only forwards `GET /events` and `GET /tags/...` and only accepts the app's
-own origins — it is not an open proxy.
+It forwards `GET /events` and `GET /tags/...` (JSON) and `GET /img?url=…` (an
+image passthrough so the share-card canvas can embed team flags without
+tainting — restricted to HTTPS image responses under 8 MB). It is not an open
+proxy: it only accepts the app's own origins via CORS.
+
+> **Redeploy note:** if you already deployed an earlier version, paste the
+> updated [`worker.js`](./worker.js) again so the `/img` endpoint exists —
+> otherwise flags won't appear in the shared image.
 
 ## Deploy (one time, ~5 min)
 

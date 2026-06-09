@@ -59,9 +59,12 @@ python3 -m http.server 8000
   **Share result** button uses the Web Share API to post a generated 1080×1080
   card (winner, flag, "the market gave them X%") to WhatsApp/X/etc.; on browsers
   without file sharing it shares text + link, and on desktop it copies the link.
-  Flags in the share image are loaded `crossOrigin` so the canvas stays
-  export-safe (a flag that isn't CORS-clean is simply omitted). Confetti and the
-  pop animation respect `prefers-reduced-motion`.
+  The share text also names the rival (`Team vs Rival`). Flags in the share
+  image are loaded `crossOrigin` so the canvas stays export-safe; since
+  Polymarket's logo CDN sends no CORS header, the load falls back to the
+  Cloudflare Worker's `/img` passthrough (see [`proxy/`](./proxy)), and is
+  omitted only if both fail. Confetti and the pop animation respect
+  `prefers-reduced-motion`.
 - **Live updates**: matches whose kick-off (UTC `startTime`) has passed are
   flagged **LIVE**; while any game is live the odds re-fetch every 30s and the
   footer shows the last-updated time in the viewer's local timezone. Resolved
