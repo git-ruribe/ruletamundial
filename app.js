@@ -139,28 +139,73 @@ async function getJSON(url, timeoutMs = 10000) {
   }
 }
 
-// Base URL that last worked (direct Gamma or the proxy). We try direct first;
-// if it fails and a proxy is configured, we fall through to it and remember it
-// so subsequent requests in the session don't re-try the blocked direct route.
+// Base URL that last worked (direct Gamma or the proxy). Once known, we reuse
+// it for the rest of the session so requests stay fast.
 let preferredBase = null;
+// If the direct API is slow to answer, also try the proxy after this delay and
+// keep whichever responds first (a "hedged" request).
+const HEDGE_MS = 3000;
 
-// GET a Gamma path (e.g. '/events?…' or '/tags/slug/world-cup'), trying the
-// direct API first and the configured proxy as a fallback.
+// GET a Gamma path (e.g. '/events?…' or '/tags/slug/world-cup').
 async function gammaGet(path) {
-  const bases = preferredBase
-    ? [preferredBase]
-    : [CONFIG.gamma, CONFIG.proxyBase].filter(Boolean);
-  let lastErr;
-  for (const base of bases) {
+  // Known-good base: use it, falling back to the other once on failure.
+  if (preferredBase) {
     try {
-      const data = await getJSON(base + path);
-      preferredBase = base;
-      return data;
+      return await getJSON(preferredBase + path);
     } catch (e) {
-      lastErr = e;
+      const other = preferredBase === CONFIG.gamma ? CONFIG.proxyBase : CONFIG.gamma;
+      if (!other) throw e;
+      const data = await getJSON(other + path);
+      preferredBase = other;
+      return data;
     }
   }
-  throw lastErr;
+
+  const primary = CONFIG.gamma;
+  const secondary = CONFIG.proxyBase;
+  if (!secondary) {
+    const data = await getJSON(primary + path);
+    preferredBase = primary;
+    return data;
+  }
+
+  // Hedged race: start direct; if it's slow or fails, also try the proxy.
+  // Whichever returns first wins; only reject if both fail. A fast direct
+  // response means the proxy is never even called.
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let outstanding = 0;
+    let secondaryStarted = false;
+    let lastErr;
+    let hedgeTimer = null;
+
+    const tryBase = (base) => {
+      outstanding++;
+      getJSON(base + path).then(
+        (data) => {
+          if (settled) return;
+          settled = true;
+          if (hedgeTimer) clearTimeout(hedgeTimer);
+          preferredBase = base;
+          resolve(data);
+        },
+        (err) => {
+          lastErr = err;
+          outstanding--;
+          if (!secondaryStarted) startSecondary();      // direct failed early
+          else if (outstanding === 0) reject(lastErr);   // both failed
+        }
+      );
+    };
+    const startSecondary = () => {
+      if (settled || secondaryStarted) return;
+      secondaryStarted = true;
+      tryBase(secondary);
+    };
+
+    tryBase(primary);
+    hedgeTimer = setTimeout(startSecondary, HEDGE_MS);
+  });
 }
 
 // outcomes / outcomePrices arrive as a JSON string or already as an array.
@@ -639,10 +684,8 @@ async function init() {
     el.select.disabled = true;
     setStatus('');
     showError(
-      '<strong>We couldn’t load the odds.</strong><br>' +
-      'Polymarket is blocked in some countries and networks ' +
-      '(for example Switzerland, France and the US). If you’re in one of them, ' +
-      'try a different network or a VPN — otherwise check your connection.'
+      '<strong>Couldn’t load the data.</strong><br>' +
+      'Something went wrong fetching the odds. Please try again.'
     );
   } finally {
     showLoading(false);
