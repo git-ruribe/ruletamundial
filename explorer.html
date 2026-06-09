@@ -62,6 +62,7 @@
       <label>limit</label>
       <input id="limit" type="number" value="200" style="width:90px" />
       <button class="primary" id="load">Load matches</button>
+      <button id="wheelq" title="Run the exact query the wheel uses">🎡 Replicate WHEEL query</button>
     </div>
     <div class="row">
       <label>sort by</label>
@@ -261,7 +262,81 @@
 
     function esc(s){ const d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
 
+    /* ---- Exact replication of the wheel (app.js) discovery + parsing ---- */
+    const WHEEL = {
+      tagSlugs: ['world-cup', '2026-fifa-world-cup', 'fifa-world-cup'],
+      limit: 300,
+      exclude: ['winner','group','top scorer','golden','player to','to advance','to win the','champion','golden boot','to qualify','to reach'],
+    };
+    const DRAW_RE = /\b(draw|tie|empate|x)\b/i;
+    const YES_RE = /^\s*(yes|s[ií])\s*$/i;
+    const NO_RE = /^\s*(no)\s*$/i;
+
+    function wheelExcluded(t){ t=(t||'').toLowerCase(); return WHEEL.exclude.some(k=>t.includes(k)); }
+    function wheelFromSingle(markets){
+      const cand = markets.map(m=>({outs:parseList(m.outcomes),prices:parseList(m.outcomePrices)}))
+        .filter(({outs})=>outs.length>=2&&outs.length<=3)
+        .filter(({outs})=>!outs.every(o=>YES_RE.test(o)||NO_RE.test(o)));
+      if(!cand.length) return null;
+      cand.sort((a,b)=>b.outs.length-a.outs.length);
+      const {outs,prices}=cand[0];
+      return outs.map((label,i)=>({label:String(label).trim(),prob:Number(prices[i])||0}));
+    }
+    function wheelFromGrouped(markets){
+      const s=[];
+      for(const m of markets){
+        const outs=parseList(m.outcomes), prices=parseList(m.outcomePrices);
+        if(outs.length!==2) continue;
+        const yi=outs.findIndex(o=>YES_RE.test(o)); if(yi===-1) continue;
+        const label=(m.groupItemTitle||m.question||'').trim(); if(!label) continue;
+        s.push({label,prob:Number(prices[yi])||0});
+      }
+      return s.length>=2?s:null;
+    }
+    function wheelOrder(sec){ const d=sec.filter(s=>DRAW_RE.test(s.label)), t=sec.filter(s=>!DRAW_RE.test(s.label)); return (d.length===1&&t.length===2)?[t[0],d[0],t[1]]:sec; }
+    function wheelNormalize(sec){ const tot=sec.reduce((a,x)=>a+(x.prob>0?x.prob:0),0); return sec.map(s=>({label:s.label,prob:tot>0?Math.max(s.prob,0)/tot:1/sec.length})); }
+    function wheelEventToMatch(ev){
+      const title=(ev.title||'').trim();
+      if(!MATCH_VS.test(title)||wheelExcluded(title)) return null;
+      const markets=(ev.markets||[]).filter(m=>m&&m.outcomes&&(m.active!==false)&&(m.closed!==true));
+      if(!markets.length) return null;
+      let sections=wheelFromSingle(markets)||wheelFromGrouped(markets);
+      if(!sections||sections.length<2) return null;
+      sections=wheelNormalize(wheelOrder(sections)).map(s=>({label:s.label,prob:+s.prob.toFixed(4)}));
+      return {title, endDate:ev.endDate||null, sections};
+    }
+
+    async function replicateWheel(){
+      setStatus('Replicating the wheel’s exact query…');
+      const queries=[]; let events=[]; const ids=[];
+      for(const slug of WHEEL.tagSlugs){ const id=await resolveTag(slug); if(id&&!ids.includes(id)) ids.push(id); }
+      for(const id of ids){
+        const url=GAMMA+'/events?'+new URLSearchParams({closed:'false',limit:String(WHEEL.limit),order:'endDate',ascending:'true',related_tags:'true',tag_id:id});
+        queries.push(url);
+        try{ const e=await getJSON(url); if(Array.isArray(e)) events.push(...e); }catch(err){ queries.push('ERROR: '+err.message); }
+      }
+      const seen=new Set(), uniq=[];
+      for(const ev of events){ if(seen.has(ev.id)) continue; seen.add(ev.id); uniq.push(ev); }
+      const matches=[];
+      for(const ev of uniq){ const m=wheelEventToMatch(ev); if(m) matches.push(m); }
+      matches.sort((a,b)=>(Date.parse(a.endDate)||Infinity)-(Date.parse(b.endDate)||Infinity));
+      lastEvents=uniq; renderSummary(uniq);
+      const diag={
+        note:'WHEEL replication — exact query + result the wheel produces',
+        tagSlugsTried:WHEEL.tagSlugs,
+        resolvedTagIds:ids,
+        queries,
+        totalEventsFetched:uniq.length,
+        wheelMatchCount:matches.length,
+        wheelMatches:matches.slice(0,25),
+      };
+      $('diag').value=JSON.stringify(diag,null,2);
+      $('raw-out').textContent=JSON.stringify(matches.slice(0,25),null,2);
+      setStatus(uniq.length+' events fetched → wheel would show '+matches.length+' "match(es)". Exact query is in the diagnostics box.', 'ok');
+    }
+
     $('load').addEventListener('click', loadMatches);
+    $('wheelq').addEventListener('click', replicateWheel);
     $('inspect').addEventListener('click', inspectEvent);
     $('runraw').addEventListener('click', runRaw);
     document.querySelectorAll('.pills button').forEach(b => b.addEventListener('click', () => { $('slug').value = b.dataset.slug; loadMatches(); }));
