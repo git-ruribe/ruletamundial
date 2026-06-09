@@ -51,6 +51,25 @@ python3 -m http.server 8000
   components (legend, description, result) reserve their height as
   placeholders so nothing jumps as you interact.
 
+## Visitor stats (optional)
+
+A public visitor widget (total visits + countries) is included. It docks to the
+side on desktop and opens from an **(i)** button in a modal on mobile. It uses
+**[Flag Counter](https://flagcounter.com)** — a static, backend-less embed, so
+no API token is exposed.
+
+To enable it:
+
+1. Create a free counter at [flagcounter.com](https://flagcounter.com).
+2. Copy your counter **code** (the part of the image URL after `/count2/`).
+3. Paste it into `CONFIG.analytics.flagCounter.code` in [`app.js`](./app.js)
+   (or paste the full image URL in `src` to keep your own style).
+
+Until configured, the widget shows these setup instructions. Flag Counter
+geolocates visitor IPs to derive countries; disclose it in your privacy policy.
+For a more privacy-strict, invisible alternative (private dashboard only),
+Cloudflare Web Analytics or Plausible can be added with a single `<script>`.
+
 ## Configuration
 
 Discovery parameters (tag slugs, keywords, limits) live in the `CONFIG` object

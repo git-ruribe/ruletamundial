@@ -59,6 +59,18 @@
     </footer>
   </main>
 
+  <!-- Visitor stats: docked side panel on desktop, (i) modal on mobile -->
+  <button id="stats-fab" class="stats-fab" aria-label="Visitor stats"
+          title="Visitor stats">ℹ</button>
+  <div id="stats-backdrop" class="stats-backdrop" hidden></div>
+  <aside id="stats-card" class="stats-card" aria-label="Visitor statistics">
+    <div class="stats-card__head">
+      <span class="stats-card__title">Visitors</span>
+      <button id="stats-close" class="stats-card__close" aria-label="Close">×</button>
+    </div>
+    <div id="stats-body" class="stats-card__body"></div>
+  </aside>
+
   <script src="app.js"></script>
 </body>
 </html>
