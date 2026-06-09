@@ -243,6 +243,24 @@ html, body {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
+/* Error overlay (geo-block / offline) — reuses the .loading positioning */
+.load-error { gap: 12px; padding: 20px; }
+.load-error__icon { font-size: 2rem; line-height: 1; }
+.load-error__text {
+  margin: 0;
+  max-width: 30ch;
+  text-align: center;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.load-error__text strong { color: #fff; }
+.load-error__retry {
+  background: var(--panel-2);
+  padding: 8px 24px;
+  font-size: 0.95rem;
+}
+
 /* Result (reserved height placeholder) */
 .result {
   flex: none;
