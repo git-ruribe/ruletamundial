@@ -30,15 +30,18 @@ python3 -m http.server 8000
 
 ## How it works
 
-- **Discovery**: resolves the World Cup tag(s) by slug (`world-cup`, …) and
-  fetches their active events. If the tag isn't found, it falls back to a
-  keyword scan of events. Only head-to-head **matches** (titled "A vs B") are
-  kept; outrights and props (winner, group, top scorer, …) are filtered out.
-- **Normalization**: each match maps to `{label, prob}` sections. Two
-  Polymarket market shapes are handled:
-  - a single market with 2–3 outcomes (1-X-2 moneyline), or
-  - several grouped binary *Yes/No* markets (`groupItemTitle`).
-  Probabilities are rescaled to sum to 1 (the *vig*/overround is removed).
+- **Discovery**: resolves the World Cup tag(s) by slug (`world-cup`,
+  `2026-fifa-world-cup`, `fifa-world-cup`) and fetches their active events.
+  Matches are identified by Polymarket's **structural sports fields** (not by
+  parsing titles): an event is a game when it has a `teams` array and markets
+  whose `sportsMarketType === "moneyline"` (the full-time result). This cleanly
+  excludes player props, group/outright winners and sub-markets (exact score,
+  half-time, …).
+- **Normalization**: each moneyline market is a binary *Yes/No* whose "Yes"
+  price is that outcome's probability, labelled by `groupItemTitle` and ordered
+  by `groupItemThreshold` (0 = home, 1 = draw, 2 = away). Probabilities are
+  rescaled to sum to 1 (the *vig*/overround is removed). Team flags come from
+  the event's `teams[].logo` and are shown on the wheel and legend.
 - **Wheel**: drawn on a `<canvas>`; each sector's angular sweep is
   `prob × 360°`. The spin uses `requestAnimationFrame` with easeOutCubic
   deceleration, and the winner is the sector under the pointer.

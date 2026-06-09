@@ -22,15 +22,6 @@ const CONFIG = {
   worldCupKeywords: ['world cup', 'fifa world cup', 'mundial', 'wc 2026'],
   // How many events to request per tag.
   eventLimit: 300,
-  // Titles that are NOT a full-time match result (props / outrights / sub-markets)
-  // — discarded. The real 1-X-2 event is titled plainly "Team A vs. Team B".
-  excludeKeywords: [
-    'h2h', 'goals', 'goal contribution', 'contribution', 'to score', 'scorer',
-    'winner', 'group', 'golden', 'player', 'to advance', 'to win the',
-    'champion', 'to qualify', 'to reach', 'mvp', 'assist', 'clean sheet',
-    'booking', 'exact score', 'halftime', 'half-time', 'more markets',
-    'both teams', 'total goals',
-  ],
   // Public visitor widget (visits + countries). Uses Flag Counter — a static,
   // backend-less embed. Create a free counter at https://flagcounter.com and
   // paste your code (the part of the image URL after "/count2/") below, OR
@@ -47,17 +38,10 @@ const CONFIG = {
   },
 };
 
-// Only treat an event as a match when its title looks like "A vs B".
-const MATCH_TITLE_RE = /\s+v(?:s)?\.?\s+/i;
-// Polymarket splits each game into sub-markets via a " - <suffix>" title
-// ("- Exact Score", "- Halftime Result", "- More Markets", …). The plain
-// "Team A vs. Team B" event (no such suffix) is the full-time 1-X-2 result.
-const SUBMARKET_RE = / - \S/;
-// Recognize the "draw" section.
-const DRAW_RE = /\b(draw|tie|empate|x)\b/i;
-// Recognize binary Yes/No outcomes.
+// Recognize the "draw" section (to clean the label and colour it neutrally).
+const DRAW_RE = /\b(draw|tie|empate)\b/i;
+// Recognize the "Yes" outcome of each binary moneyline market.
 const YES_RE = /^\s*(yes|s[ií])\s*$/i;
-const NO_RE = /^\s*(no)\s*$/i;
 
 const COLORS = {
   team1: '#2f81f7',
@@ -192,79 +176,52 @@ function matchesWorldCup(ev) {
   return CONFIG.worldCupKeywords.some((k) => haystacks.includes(k));
 }
 
-// Extract {label, prob} sections from a match event, or null if not a match.
+// Build a match from an event using Polymarket's institutional sports fields
+// (no title-text parsing). A real game has a `teams` array and full-time
+// result markets tagged `sportsMarketType === "moneyline"`; each such market
+// is a Yes/No whose "Yes" price is that outcome's probability, labelled by
+// `groupItemTitle` and ordered by `groupItemThreshold` (0=home, 1=draw, 2=away).
 function eventToMatch(ev) {
-  const title = (ev.title || '').trim();
-  // Keep only the full-time match result event: "Team A vs. Team B" with no
-  // " - <suffix>" sub-market and no prop/outright keyword.
-  if (!MATCH_TITLE_RE.test(title) || SUBMARKET_RE.test(title) || excluded(title)) return null;
-
-  const markets = (ev.markets || []).filter(
-    (m) => m && m.outcomes && (m.active !== false) && (m.closed !== true)
+  const teams = Array.isArray(ev.teams) ? ev.teams : [];
+  const moneyline = (ev.markets || []).filter(
+    (m) =>
+      m &&
+      m.sportsMarketType === 'moneyline' &&
+      m.active !== false &&
+      m.closed !== true
   );
-  if (!markets.length) return null;
+  if (teams.length < 2 || moneyline.length < 2) return null;
 
-  let sections = fromSingleMarket(markets) || fromGroupedMarkets(markets);
-  if (!sections || sections.length < 2) return null;
+  // Map each team name to its flag/logo image (from the event's `teams`).
+  const logoFor = {};
+  for (const t of teams) {
+    if (t && t.name) logoFor[t.name.trim().toLowerCase()] = t.logo || null;
+  }
 
-  sections = normalize(orderSections(sections));
+  const raw = moneyline
+    .map((m) => {
+      const outs = parseList(m.outcomes);
+      const prices = parseList(m.outcomePrices);
+      const yesIdx = outs.findIndex((o) => YES_RE.test(o));
+      const label = (m.groupItemTitle || '').trim();
+      return {
+        label,
+        prob: yesIdx >= 0 ? Number(prices[yesIdx]) || 0 : 0,
+        order: Number(m.groupItemThreshold) || 0,
+        logo: logoFor[label.toLowerCase()] || null,
+      };
+    })
+    .filter((s) => s.label);
+  if (raw.length < 2) return null;
+
+  raw.sort((a, b) => a.order - b.order);
   return {
-    title: title || 'Match',
-    sections,
-    endDate: ev.endDate || (markets[0] && markets[0].endDate) || null,
-    description: (ev.description || (markets[0] && markets[0].description) || '').trim(),
+    title: (ev.title || '').trim() || 'Match',
+    sections: normalize(raw),
+    endDate: ev.endDate || ev.startTime || null,
+    description: (ev.description || '').trim(),
   };
 }
-
-function excluded(title) {
-  const t = (title || '').toLowerCase();
-  return CONFIG.excludeKeywords.some((k) => t.includes(k));
-}
-
-// Pattern 1: a single market with 2-3 outcomes that are NOT Yes/No (1X2).
-function fromSingleMarket(markets) {
-  const candidates = markets
-    .map((m) => ({ m, outs: parseList(m.outcomes), prices: parseList(m.outcomePrices) }))
-    .filter(({ outs }) => outs.length >= 2 && outs.length <= 3)
-    .filter(({ outs }) => !outs.every((o) => YES_RE.test(o) || NO_RE.test(o)));
-
-  if (!candidates.length) return null;
-  // Prefer the one with 3 outcomes (includes the draw).
-  candidates.sort((a, b) => b.outs.length - a.outs.length);
-  const { outs, prices } = candidates[0];
-
-  return outs.map((label, i) => ({
-    label: String(label).trim(),
-    prob: Number(prices[i]) || 0,
-  }));
-}
-
-// Pattern 2: several binary Yes/No markets grouped (groupItemTitle per side).
-function fromGroupedMarkets(markets) {
-  const sections = [];
-  for (const m of markets) {
-    const outs = parseList(m.outcomes);
-    const prices = parseList(m.outcomePrices);
-    if (outs.length !== 2) continue;
-    const yesIdx = outs.findIndex((o) => YES_RE.test(o));
-    if (yesIdx === -1) continue;
-    const label = (m.groupItemTitle || m.question || '').trim();
-    if (!label) continue;
-    sections.push({ label, prob: Number(prices[yesIdx]) || 0 });
-  }
-  return sections.length >= 2 ? sections : null;
-}
-
-// Order as [team1, draw, team2] when a draw is present.
-function orderSections(sections) {
-  const draw = sections.filter((s) => DRAW_RE.test(s.label));
-  const teams = sections.filter((s) => !DRAW_RE.test(s.label));
-  if (draw.length === 1 && teams.length === 2) {
-    return [teams[0], draw[0], teams[1]];
-  }
-  return sections;
-}
-
 // Remove the "vig": rescale probabilities to sum to 1 and assign colors.
 function normalize(sections) {
   const total = sections.reduce((s, x) => s + (x.prob > 0 ? x.prob : 0), 0);
@@ -276,7 +233,7 @@ function normalize(sections) {
     else color = i === sections.length - 1 ? COLORS.team2 : COLORS.team1;
     // Clean up Polymarket's verbose draw label "Draw (A vs. B)" → "Draw".
     const label = isDraw ? 'Draw' : s.label;
-    return { label, prob, color };
+    return { label, prob, color, logo: s.logo || null };
   });
 }
 
@@ -330,6 +287,7 @@ function selectMatch(index) {
   state.current = state.matches[index];
   state.rotation = 0;
   hideResult(); // clear any previous result on a different selection
+  preloadLogos(state.current.sections);
   renderLegend();
   renderDescription();
   drawWheel();
@@ -343,8 +301,11 @@ function renderLegend() {
   m.sections.forEach((s) => {
     const item = document.createElement('span');
     item.className = 'legend__item';
+    const badge = s.logo
+      ? `<img class="legend__flag" src="${s.logo}" alt="" />`
+      : `<span class="legend__swatch" style="background:${s.color}"></span>`;
     item.innerHTML =
-      `<span class="legend__swatch" style="background:${s.color}"></span>` +
+      badge +
       `<span>${escapeHtml(s.label)}</span>` +
       `<span class="legend__pct">${pct(s.prob)}</span>`;
     el.legend.appendChild(item);
@@ -363,6 +324,26 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+/* ------------------------------ TEAM FLAGS ------------------------------- */
+// Cache team flag/logo images; redraw the wheel once one finishes loading.
+const logoCache = new Map();
+function getLogo(url) {
+  if (!url) return null;
+  let entry = logoCache.get(url);
+  if (!entry) {
+    const img = new Image();
+    entry = { img, loaded: false };
+    img.onload = () => { entry.loaded = true; if (!state.spinning) drawWheel(); };
+    img.onerror = () => { entry.error = true; };
+    img.src = url;
+    logoCache.set(url, entry);
+  }
+  return entry.loaded ? entry.img : null;
+}
+function preloadLogos(sections) {
+  sections.forEach((s) => { if (s.logo) getLogo(s.logo); });
 }
 
 /* ---------------------------- WHEEL RENDER ------------------------------- */
@@ -427,26 +408,33 @@ function drawWheel() {
 
 function drawSectorLabel(r, start, end, section) {
   const sweep = end - start;
+  if (sweep <= 0.16) return; // sector too small to label
   const mid = -Math.PI / 2 + start + sweep / 2;
-  const dist = r * 0.62;
+  const dist = r * 0.6;
+  const img = section.logo ? getLogo(section.logo) : null;
+
   ctx.save();
   ctx.rotate(mid);
   ctx.translate(dist, 0);
-  // Keep text upright on the left half.
-  if (mid > Math.PI / 2 || mid < -Math.PI / 2) ctx.rotate(Math.PI);
-  ctx.fillStyle = '#fff';
+  // Counter-rotate so the flag and text stay upright regardless of the
+  // wheel's spin or which side of the circle the sector is on.
+  ctx.rotate(-(state.rotation + mid));
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.font = '600 19px system-ui, sans-serif';
   ctx.shadowColor = 'rgba(0,0,0,0.55)';
   ctx.shadowBlur = 4;
-  // Only show the label if the sector is large enough.
-  if (sweep > 0.18) {
-    const label = fit(section.label, 14);
-    ctx.fillText(label, 0, -9);
-    ctx.font = '700 16px system-ui, sans-serif';
-    ctx.fillText(pct(section.prob), 0, 12);
+
+  if (img) {
+    const fw = 40;
+    const fh = Math.min(34, fw * (img.height / img.width || 0.66));
+    ctx.drawImage(img, -fw / 2, -fh - 6, fw, fh);
   }
+  const yLabel = img ? 14 : -9;
+  ctx.fillStyle = '#fff';
+  ctx.font = '600 18px system-ui, sans-serif';
+  ctx.fillText(fit(section.label, 14), 0, yLabel);
+  ctx.font = '700 15px system-ui, sans-serif';
+  ctx.fillText(pct(section.prob), 0, yLabel + 21);
   ctx.restore();
 }
 

@@ -233,6 +233,14 @@ html, body {
   flex: none;
 }
 
+.legend__flag {
+  width: 20px;
+  height: 14px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex: none;
+}
+
 .legend__pct { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* Match description (fixed-height placeholder, scrolls if long) */
