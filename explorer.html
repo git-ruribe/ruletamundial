@@ -72,8 +72,8 @@
         <option value="liquidity">liquidity</option>
       </select>
       <label><input id="asc" type="checkbox" checked /> ascending</label>
-      <label><input id="onlyvs" type="checkbox" checked /> only “A vs B”</label>
-      <label><input id="hideprops" type="checkbox" checked /> hide props (H2H / goals / winner / group…)</label>
+      <label><input id="onlyvs" type="checkbox" /> only “A vs B”</label>
+      <label><input id="hideprops" type="checkbox" /> hide props (H2H / goals / winner / group…)</label>
     </div>
     <div class="row pills">
       <span class="hint">Quick slugs:</span>
@@ -220,7 +220,7 @@
     }
 
     function buildDiagnostics(events) {
-      const sample = events.slice(0, 8).map(trimEvent);
+      const sample = events.slice(0, 14).map(trimEvent);
       const out = {
         note: 'Polymarket diagnostics for Claude',
         totalEvents: events.length,
