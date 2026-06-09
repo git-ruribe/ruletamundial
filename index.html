@@ -103,8 +103,15 @@
       <button id="spin-btn" class="btn btn--primary" disabled>Spin</button>
 
       <div id="result" class="result is-hidden">
-        <span class="result__label">Result</span>
-        <strong id="result-text" class="result__text"></strong>
+        <span id="result-label" class="result__label">Result</span>
+        <div class="result__main">
+          <img id="result-flag" class="result__flag" alt="" />
+          <strong id="result-text" class="result__text"></strong>
+        </div>
+        <button id="share-btn" class="btn share-btn" type="button">
+          <span class="share-btn__icon" aria-hidden="true">📤</span>
+          <span id="share-label">Share result</span>
+        </button>
       </div>
     </section>
 
@@ -118,6 +125,9 @@
       </span>
     </footer>
   </main>
+
+  <!-- Celebration confetti (full-viewport overlay; pointer-events: none) -->
+  <canvas id="confetti" class="confetti" aria-hidden="true"></canvas>
 
   <!-- Educational modal: how the wheel maps probability -->
   <div id="edu-backdrop" class="modal-backdrop" hidden></div>

@@ -69,6 +69,11 @@ const el = {
   spin: document.getElementById('spin-btn'),
   result: document.getElementById('result'),
   resultText: document.getElementById('result-text'),
+  resultLabel: document.getElementById('result-label'),
+  resultFlag: document.getElementById('result-flag'),
+  shareBtn: document.getElementById('share-btn'),
+  shareLabel: document.getElementById('share-label'),
+  confetti: document.getElementById('confetti'),
   liveBadge: document.getElementById('live-badge'),
   lastUpdated: document.getElementById('last-updated'),
   whyBtn: document.getElementById('why-open'),
@@ -472,6 +477,7 @@ function selectMatch(index) {
   state.rotation = 0;
   hideResult(); // clear any previous result on a different selection
   preloadLogos(state.current.sections);
+  preloadShareLogos(state.current.sections);
   drawWheel();
   el.spin.disabled = false;
   updateLiveBadge();
@@ -642,15 +648,299 @@ function winnerAtPointer() {
   return state.current.sections[0];
 }
 
+// Honour the OS "reduce motion" setting: keep the result, drop the confetti.
+const REDUCE_MOTION =
+  window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Classify a result by how surprising it is. The winner is an "upset" when it
+// wasn't the market favourite; a "huge" upset when the crowd gave it < 18%.
+// This is the whole viral hook — the rare result is framed as rare.
+function classifyResult(winner) {
+  const fave = state.current.sections.reduce(
+    (a, b) => (b.prob > a.prob ? b : a),
+    state.current.sections[0]
+  );
+  const isUpset = winner !== fave && winner.prob < fave.prob;
+  const isHuge = isUpset && winner.prob < 0.18;
+  return { isUpset, isHuge };
+}
+
 function announceWinner() {
   const winner = winnerAtPointer();
+  const { isUpset, isHuge } = classifyResult(winner);
+  state.lastResult = { winner, match: state.current, isUpset, isHuge };
+
+  el.resultLabel.textContent = isHuge ? '🚨 Huge upset' : isUpset ? '😮 Upset' : 'Result';
   el.resultText.textContent = `${winner.label} · ${pct(winner.prob)}`;
   el.resultText.style.color = winner.color;
+
+  if (winner.logo) {
+    el.resultFlag.src = winner.logo;
+    el.resultFlag.style.visibility = 'visible';
+  } else {
+    el.resultFlag.removeAttribute('src');
+    el.resultFlag.style.visibility = 'hidden';
+  }
+
+  el.result.classList.toggle('is-upset', isUpset);
+  el.result.classList.toggle('is-huge', isHuge);
   reserve(el.result, true);
+
+  // Pop-in (restart the animation each time by toggling the class).
+  el.result.classList.remove('is-pop');
+  void el.result.offsetWidth; // reflow so the animation re-triggers
+  el.result.classList.add('is-pop');
+
+  // Confetti intensity scales with the surprise: a heavy favourite gets a light
+  // sprinkle, a giant-killing gets the full burst.
+  if (!REDUCE_MOTION) {
+    const intensity = isHuge ? 1 : isUpset ? 0.7 : 0.3 + (1 - winner.prob) * 0.3;
+    launchConfetti(Math.min(1, intensity), isHuge);
+  }
 }
 
 function hideResult() {
   reserve(el.result, false);
+  el.result.classList.remove('is-pop', 'is-upset', 'is-huge');
+}
+
+/* ----------------------------- CONFETTI ---------------------------------- */
+const cctx = el.confetti ? el.confetti.getContext('2d') : null;
+let confettiParticles = [];
+let confettiRAF = null;
+const CONFETTI_COLORS = ['#ffd23f', '#2f81f7', '#f85149', '#3fb950', '#e6edf3', '#ff8ad8'];
+
+function sizeConfetti() {
+  if (!el.confetti) return;
+  const dpr = window.devicePixelRatio || 1;
+  el.confetti.width = window.innerWidth * dpr;
+  el.confetti.height = window.innerHeight * dpr;
+  cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function spawnParticle(x, y, spread, upward) {
+  confettiParticles.push({
+    x,
+    y,
+    vx: (Math.random() - 0.5) * spread,
+    vy: upward ? -(Math.random() * 9 + 4) : Math.random() * 3 + 2,
+    size: Math.random() * 6 + 4,
+    color: CONFETTI_COLORS[(Math.random() * CONFETTI_COLORS.length) | 0],
+    rot: Math.random() * Math.PI,
+    vrot: (Math.random() - 0.5) * 0.32,
+    rect: Math.random() < 0.55,
+    life: 0,
+  });
+}
+
+// intensity 0..1 sets the particle count; `burst` adds a center pop for big upsets.
+function launchConfetti(intensity, burst) {
+  if (!cctx) return;
+  sizeConfetti();
+  const W = window.innerWidth;
+  const count = Math.round(40 + intensity * 170);
+  for (let i = 0; i < count; i++) {
+    spawnParticle(W / 2 + (Math.random() - 0.5) * W * 0.5, -20, 7 + intensity * 6, false);
+  }
+  if (burst) {
+    const bx = W / 2;
+    const by = window.innerHeight * 0.4;
+    for (let i = 0; i < 80; i++) spawnParticle(bx, by, 16, true);
+  }
+  if (!confettiRAF) confettiRAF = requestAnimationFrame(confettiFrame);
+}
+
+function confettiFrame() {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  cctx.clearRect(0, 0, W, H);
+  for (const p of confettiParticles) {
+    p.vy += 0.16; // gravity
+    p.vx *= 0.99;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.rot += p.vrot;
+    p.life++;
+    cctx.save();
+    cctx.translate(p.x, p.y);
+    cctx.rotate(p.rot);
+    cctx.globalAlpha = Math.max(0, 1 - p.life / 230);
+    cctx.fillStyle = p.color;
+    if (p.rect) cctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+    else { cctx.beginPath(); cctx.arc(0, 0, p.size / 2, 0, Math.PI * 2); cctx.fill(); }
+    cctx.restore();
+  }
+  confettiParticles = confettiParticles.filter((p) => p.y < H + 40 && p.life < 240);
+  if (confettiParticles.length) {
+    confettiRAF = requestAnimationFrame(confettiFrame);
+  } else {
+    confettiRAF = null;
+    cctx.clearRect(0, 0, W, H);
+  }
+}
+
+/* ------------------------------ SHARING ---------------------------------- */
+// Flags drawn into the share image must be CORS-clean or toBlob() would throw on
+// a tainted canvas. We load a separate crossOrigin='anonymous' copy: if the CDN
+// allows it the image loads (and is export-safe); if not it simply never loads
+// and we skip the flag. Either way the export never taints.
+const shareLogoCache = new Map();
+function getShareLogo(url) {
+  if (!url) return null;
+  let entry = shareLogoCache.get(url);
+  if (!entry) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    entry = { img, loaded: false };
+    img.onload = () => { entry.loaded = true; };
+    img.onerror = () => { entry.error = true; };
+    img.src = url;
+    shareLogoCache.set(url, entry);
+  }
+  return entry.loaded ? entry.img : null;
+}
+function preloadShareLogos(sections) {
+  sections.forEach((s) => { if (s.logo) getShareLogo(s.logo); });
+}
+
+function wrapText(ctx2, text, x, y, maxW, lineH) {
+  const words = String(text).split(/\s+/);
+  let line = '';
+  let yy = y;
+  for (const w of words) {
+    const test = line ? line + ' ' + w : w;
+    if (ctx2.measureText(test).width > maxW && line) {
+      ctx2.fillText(line, x, yy);
+      line = w;
+      yy += lineH;
+    } else {
+      line = test;
+    }
+  }
+  if (line) ctx2.fillText(line, x, yy);
+  return yy;
+}
+
+// Render a 1080×1080 share card from the last result. Returns a PNG Blob (or
+// null if the browser can't export). Square format travels well on WhatsApp/X/IG.
+function buildShareImage(r) {
+  return new Promise((resolve) => {
+    try {
+      const S = 1080;
+      const c = document.createElement('canvas');
+      c.width = S;
+      c.height = S;
+      const g = c.getContext('2d');
+
+      const bg = g.createLinearGradient(0, 0, 0, S);
+      bg.addColorStop(0, '#182030');
+      bg.addColorStop(1, '#0d1117');
+      g.fillStyle = bg;
+      g.fillRect(0, 0, S, S);
+
+      g.textAlign = 'center';
+
+      // Wordmark
+      g.fillStyle = '#ffd23f';
+      g.font = '700 46px system-ui, sans-serif';
+      g.fillText('🎡 World Cup Wheel', S / 2, 120);
+
+      // Match title
+      g.fillStyle = '#8b949e';
+      g.font = '400 34px system-ui, sans-serif';
+      wrapText(g, r.match.title, S / 2, 200, S - 160, 44);
+
+      // Upset badge
+      if (r.isUpset) {
+        g.fillStyle = r.isHuge ? '#ffd23f' : '#e6edf3';
+        g.font = '800 40px system-ui, sans-serif';
+        g.fillText(r.isHuge ? '🚨 HUGE UPSET' : '😮 UPSET', S / 2, 360);
+      }
+
+      // Winner flag (only if a CORS-clean copy is ready — never taints export)
+      const img = r.winner.logo ? getShareLogo(r.winner.logo) : null;
+      if (img) {
+        const fw = 300;
+        const fh = Math.min(200, fw * (img.height / img.width || 0.66));
+        g.drawImage(img, (S - fw) / 2, 430, fw, fh);
+      }
+
+      // Winner name + probability
+      g.fillStyle = r.winner.color;
+      g.font = '800 96px system-ui, sans-serif';
+      g.fillText(fit(r.winner.label, 16), S / 2, 720);
+
+      g.fillStyle = '#e6edf3';
+      g.font = '600 44px system-ui, sans-serif';
+      g.fillText(`The market gave them ${pct(r.winner.prob)}`, S / 2, 800);
+
+      // Footer
+      g.fillStyle = '#8b949e';
+      g.font = '600 38px system-ui, sans-serif';
+      g.fillText('Spin yours → gonnafind.com', S / 2, 980);
+
+      if (c.toBlob) c.toBlob((b) => resolve(b), 'image/png');
+      else resolve(null);
+    } catch {
+      resolve(null); // tainted canvas or no support → share text-only
+    }
+  });
+}
+
+function shareUrl() {
+  return location.origin + location.pathname;
+}
+
+function shareText(r) {
+  const p = pct(r.winner.prob);
+  return r.isUpset
+    ? `😱 ${r.winner.label} came up on the World Cup Wheel — the market only gave them ${p}!`
+    : `🎡 ${r.winner.label} (${p}) came up on my World Cup Wheel spin.`;
+}
+
+async function copyShare(text, url) {
+  const payload = `${text} Spin yours: ${url}`;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(payload);
+    flashShareLabel('Link copied ✓');
+  } else {
+    flashShareLabel('Copy: ' + url);
+  }
+}
+
+let shareLabelTimer = null;
+function flashShareLabel(msg) {
+  if (!el.shareLabel) return;
+  const original = 'Share result';
+  el.shareLabel.textContent = msg;
+  if (shareLabelTimer) clearTimeout(shareLabelTimer);
+  shareLabelTimer = setTimeout(() => { el.shareLabel.textContent = original; }, 2200);
+}
+
+async function doShare() {
+  const r = state.lastResult;
+  if (!r) return;
+  const url = shareUrl();
+  const text = shareText(r);
+  const data = { title: 'World Cup Wheel', text: `${text} Spin yours:`, url };
+  try {
+    const blob = await buildShareImage(r);
+    if (blob && navigator.canShare) {
+      const file = new File([blob], 'world-cup-wheel.png', { type: 'image/png' });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ ...data, files: [file] });
+        return;
+      }
+    }
+    if (navigator.share) {
+      await navigator.share(data);
+      return;
+    }
+    await copyShare(text, url);
+  } catch (err) {
+    if (err && err.name === 'AbortError') return; // user dismissed the sheet
+    try { await copyShare(text, url); } catch { /* ignore */ }
+  }
 }
 
 /* ------------------------------ STARTUP ---------------------------------- */
@@ -722,6 +1012,7 @@ async function refreshLive() {
   el.select.value = String(idx);
   state.current = state.matches[idx];
   preloadLogos(state.current.sections);
+  preloadShareLogos(state.current.sections);
   drawWheel();
   updateLiveBadge();
   updateWhyButton();
@@ -828,6 +1119,7 @@ function wireEduModal() {
 /* ------------------------------- EVENTS ---------------------------------- */
 el.select.addEventListener('change', (e) => selectMatch(Number(e.target.value)));
 el.spin.addEventListener('click', spin);
+el.shareBtn.addEventListener('click', doShare);
 el.refresh.addEventListener('click', () => {
   if (state.spinning) return;
   init();
@@ -838,6 +1130,7 @@ el.retry.addEventListener('click', () => {
 });
 
 window.addEventListener('resize', fitWheel);
+window.addEventListener('resize', sizeConfetti);
 
 buildStats();
 wireStatsWidget();
