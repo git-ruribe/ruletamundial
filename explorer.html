@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Polymarket Explorer (temp tool)</title>
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --text: #e6edf3;
+      --muted: #8b949e; --border: #30363d; --accent: #ffd23f; --blue: #2f81f7;
+      --green: #3fb950; --red: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 18px; line-height: 1.45;
+    }
+    h1 { font-size: 1.3rem; margin: 0 0 4px; }
+    .sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 16px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+    label { font-size: 0.78rem; color: var(--muted); }
+    input[type="text"], input[type="number"] {
+      background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 10px; font-size: 0.9rem;
+    }
+    input.grow { flex: 1; min-width: 220px; }
+    button {
+      background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 14px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    }
+    button.primary { background: linear-gradient(180deg,#ffdc5e,var(--accent)); color:#1a1300; border-color:#d8a400; }
+    button:hover { filter: brightness(1.08); }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
+    .status { font-size: 0.84rem; color: var(--muted); min-height: 1.2em; }
+    .status.err { color: var(--red); }
+    .status.ok { color: var(--green); }
+    details { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--panel); }
+    summary { cursor: pointer; padding: 10px 12px; font-weight: 600; }
+    summary .meta { color: var(--muted); font-weight: 400; font-size: 0.82rem; }
+    .mkt { border-top: 1px solid var(--border); padding: 8px 12px; font-size: 0.84rem; }
+    .mkt b { color: var(--blue); }
+    .kv { color: var(--muted); }
+    .tag { display: inline-block; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 0.72rem; margin: 2px 4px 2px 0; }
+    pre { background: #06090f; border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow: auto; font-size: 0.78rem; max-height: 360px; }
+    textarea { width: 100%; height: 220px; background: #06090f; color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.76rem; }
+    .pills button { font-size: 0.8rem; padding: 6px 10px; }
+    .hint { font-size: 0.76rem; color: var(--muted); }
+    .outs { font-family: ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <h1>🔎 Polymarket Explorer <span class="sub">— temporary tool</span></h1>
+  <p class="sub">Runs in your browser against <code>gamma-api.polymarket.com</code>. Explore the real data, then hit
+    <strong>“Copy diagnostics for Claude”</strong> and paste the result back in chat.</p>
+
+  <div class="card">
+    <div class="row">
+      <label>World Cup tag slug</label>
+      <input id="slug" type="text" value="world-cup" />
+      <label>limit</label>
+      <input id="limit" type="number" value="200" style="width:90px" />
+      <label><input id="onlyvs" type="checkbox" checked /> only “A vs B”</label>
+      <button class="primary" id="load">Load matches</button>
+    </div>
+    <div class="row pills">
+      <span class="hint">Quick slugs:</span>
+      <button data-slug="world-cup">world-cup</button>
+      <button data-slug="2026-fifa-world-cup">2026-fifa-world-cup</button>
+      <button data-slug="fifa-world-cup">fifa-world-cup</button>
+      <button data-slug="soccer">soccer</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <label>Inspect one event (slug or polymarket.com/event/… URL)</label>
+      <input id="evslug" type="text" class="grow" placeholder="e.g. mexico-vs-canada or full URL" />
+      <button id="inspect">Inspect</button>
+    </div>
+    <div class="row">
+      <label>Raw query</label>
+      <input id="raw" type="text" class="grow" placeholder="/events?closed=false&limit=5&order=volume24hr&ascending=false" />
+      <button id="runraw">Run raw</button>
+    </div>
+    <div class="hint">Raw runs against the Gamma base URL. Result shows below in “Raw JSON”.</div>
+  </div>
+
+  <div class="row">
+    <button class="primary" id="copydiag">📋 Copy diagnostics for Claude</button>
+    <span id="copystatus" class="hint"></span>
+  </div>
+  <textarea id="diag" readonly placeholder="Diagnostics summary will appear here…"></textarea>
+
+  <h3>Summary</h3>
+  <div id="summary"></div>
+
+  <h3>Raw JSON <span class="hint">(first response)</span></h3>
+  <pre id="raw-out">—</pre>
+
+  <script>
+    const GAMMA = 'https://gamma-api.polymarket.com';
+    const MATCH_VS = /\s+v(?:s)?\.?\s+/i;
+    const $ = (id) => document.getElementById(id);
+
+    let lastEvents = [];
+
+    function setStatus(msg, kind='') { const s=$('status'); s.textContent=msg||''; s.className='status'+(kind?' '+kind:''); }
+
+    async function getJSON(url) {
+      const res = await fetch(url, { headers: { accept: 'application/json' } });
+      const text = await res.text();
+      if (!res.ok) throw new Error('HTTP ' + res.status + ' — ' + text.slice(0,200));
+      try { return JSON.parse(text); } catch { return text; }
+    }
+
+    function parseList(v) {
+      if (Array.isArray(v)) return v;
+      if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p)?p:[]; } catch { return []; } }
+      return [];
+    }
+
+    async function resolveTag(slug) {
+      try { const t = await getJSON(GAMMA + '/tags/slug/' + encodeURIComponent(slug)); return t && t.id ? String(t.id) : null; }
+      catch { return null; }
+    }
+
+    async function loadMatches() {
+      const slug = $('slug').value.trim();
+      const limit = $('limit').value.trim() || '200';
+      const onlyVs = $('onlyvs').checked;
+      setStatus('Resolving tag “' + slug + '”…');
+      const t0 = performance.now();
+
+      let url, events;
+      const tagId = await resolveTag(slug);
+      if (tagId) {
+        url = GAMMA + '/events?' + new URLSearchParams({ closed:'false', limit, order:'startDate', ascending:'true', related_tags:'true', tag_id: tagId });
+      } else {
+        // fallback: keyword scan
+        url = GAMMA + '/events?' + new URLSearchParams({ closed:'false', limit:'500', order:'startDate', ascending:'true' });
+      }
+      try {
+        events = await getJSON(url);
+      } catch (e) { setStatus('Error: ' + e.message, 'err'); return; }
+
+      if (!Array.isArray(events)) events = [];
+      if (!tagId) {
+        const kw = ['world cup','fifa world cup','mundial'];
+        events = events.filter(ev => JSON.stringify([ev.title, ev.slug, (ev.tags||[]).map(t=>t.slug+' '+t.label)]).toLowerCase().split('"').some(s=>kw.some(k=>s.includes(k))));
+      }
+      if (onlyVs) events = events.filter(ev => MATCH_VS.test(ev.title||''));
+
+      lastEvents = events;
+      const ms = Math.round(performance.now()-t0);
+      setStatus((tagId?('tag_id='+tagId+' · '):'(fallback keyword scan) ') + events.length + ' event(s) · ' + ms + 'ms · ' + url, 'ok');
+      $('raw-out').textContent = JSON.stringify(events.slice(0,3), null, 2);
+      renderSummary(events);
+      buildDiagnostics(events);
+    }
+
+    function marketRow(m) {
+      const outs = parseList(m.outcomes);
+      const prices = parseList(m.outcomePrices);
+      const pairs = outs.map((o,i)=> o + '=' + (prices[i]!==undefined?prices[i]:'?')).join(' , ');
+      return '<div class="mkt"><b>' + esc(m.question||m.groupItemTitle||'(market)') + '</b>'
+        + ' <span class="kv">groupItemTitle:</span> ' + esc(m.groupItemTitle||'—')
+        + ' <span class="kv">type:</span> ' + esc(m.sportsMarketType||m.marketType||'—')
+        + ' <span class="kv">active:</span> ' + (m.active!==false) + ' <span class="kv">closed:</span> ' + (m.closed===true)
+        + '<br><span class="kv">outcomes:</span> <span class="outs">' + esc(pairs||'—') + '</span></div>';
+    }
+
+    function renderSummary(events) {
+      const box = $('summary');
+      if (!events.length) { box.innerHTML = '<p class="hint">No events.</p>'; return; }
+      box.innerHTML = events.map(ev => {
+        const mk = (ev.markets||[]);
+        const tags = (ev.tags||[]).map(t=>'<span class="tag">'+esc(t.slug||t.label||'')+'</span>').join('');
+        return '<details><summary>' + esc(ev.title||'(no title)')
+          + ' <span class="meta">· ' + mk.length + ' market(s) · ends ' + esc(ev.endDate||'?') + ' · slug=' + esc(ev.slug||'?') + '</span></summary>'
+          + '<div class="mkt kv">tags: ' + (tags||'—') + '</div>'
+          + mk.map(marketRow).join('')
+          + '</details>';
+      }).join('');
+    }
+
+    function trimMarket(m) {
+      return {
+        question: m.question, groupItemTitle: m.groupItemTitle,
+        sportsMarketType: m.sportsMarketType, marketType: m.marketType,
+        outcomes: parseList(m.outcomes), outcomePrices: parseList(m.outcomePrices),
+        active: m.active, closed: m.closed,
+      };
+    }
+    function trimEvent(ev) {
+      return {
+        title: ev.title, slug: ev.slug, startDate: ev.startDate, endDate: ev.endDate,
+        tags: (ev.tags||[]).map(t=>t.slug||t.label),
+        markets: (ev.markets||[]).map(trimMarket),
+      };
+    }
+
+    function buildDiagnostics(events) {
+      const sample = events.slice(0, 8).map(trimEvent);
+      const out = {
+        note: 'Polymarket diagnostics for Claude',
+        totalEvents: events.length,
+        showing: sample.length,
+        sample,
+      };
+      $('diag').value = JSON.stringify(out, null, 2);
+    }
+
+    async function inspectEvent() {
+      let v = $('evslug').value.trim();
+      if (!v) return;
+      const m = v.match(/event\/([^/?#]+)/); if (m) v = m[1];
+      setStatus('Fetching event slug “' + v + '”…');
+      try {
+        const ev = await getJSON(GAMMA + '/events?slug=' + encodeURIComponent(v));
+        const arr = Array.isArray(ev) ? ev : [ev];
+        lastEvents = arr;
+        $('raw-out').textContent = JSON.stringify(arr, null, 2);
+        renderSummary(arr);
+        buildDiagnostics(arr);
+        setStatus(arr.length + ' event(s) for slug ' + v, 'ok');
+      } catch (e) { setStatus('Error: ' + e.message, 'err'); }
+    }
+
+    async function runRaw() {
+      let path = $('raw').value.trim();
+      if (!path) return;
+      if (!path.startsWith('/')) path = '/' + path;
+      setStatus('Running ' + path + '…');
+      try {
+        const data = await getJSON(GAMMA + path);
+        $('raw-out').textContent = JSON.stringify(data, null, 2);
+        if (Array.isArray(data)) { lastEvents = data; renderSummary(data); buildDiagnostics(data); }
+        setStatus('OK · ' + (Array.isArray(data)?data.length+' item(s)':'object') + ' · ' + GAMMA + path, 'ok');
+      } catch (e) { setStatus('Error: ' + e.message, 'err'); }
+    }
+
+    function esc(s){ const d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+
+    $('load').addEventListener('click', loadMatches);
+    $('inspect').addEventListener('click', inspectEvent);
+    $('runraw').addEventListener('click', runRaw);
+    document.querySelectorAll('.pills button').forEach(b => b.addEventListener('click', () => { $('slug').value = b.dataset.slug; loadMatches(); }));
+    $('copydiag').addEventListener('click', async () => {
+      const t = $('diag'); t.select();
+      try { await navigator.clipboard.writeText(t.value); $('copystatus').textContent = 'Copied! Paste it back to Claude.'; }
+      catch { document.execCommand('copy'); $('copystatus').textContent = 'Selected — press Ctrl/Cmd+C.'; }
+    });
+
+    // Auto-run once on load.
+    loadMatches();
+  </script>
+</body>
+</html>
