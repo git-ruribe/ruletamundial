@@ -622,6 +622,22 @@ function wireStatsWidget() {
   });
 }
 
+function wireEduModal() {
+  const openBtn = document.getElementById('edu-open');
+  const card = document.getElementById('edu-card');
+  const backdrop = document.getElementById('edu-backdrop');
+  const closeBtn = document.getElementById('edu-close');
+  if (!openBtn || !card) return;
+
+  const open = () => { card.classList.add('is-open'); backdrop.hidden = false; };
+  const close = () => { card.classList.remove('is-open'); backdrop.hidden = true; };
+
+  openBtn.addEventListener('click', open);
+  closeBtn.addEventListener('click', close);
+  backdrop.addEventListener('click', close);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+}
+
 /* ------------------------------- EVENTS ---------------------------------- */
 el.select.addEventListener('change', (e) => selectMatch(Number(e.target.value)));
 el.spin.addEventListener('click', spin);
@@ -634,6 +650,7 @@ window.addEventListener('resize', fitWheel);
 
 buildStats();
 wireStatsWidget();
+wireEduModal();
 
 fitWheel();
 requestAnimationFrame(fitWheel); // re-fit once layout/fonts have settled

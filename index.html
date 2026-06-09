@@ -52,12 +52,46 @@
     </section>
 
     <footer class="app__footer">
+      <button id="edu-open" class="edu-link">
+        🎲 Favorites lose too — why <em>any</em> team can win →
+      </button>
       <span id="odds-source" class="odds-source"></span>
       <span class="disclaimer">
         Data from Polymarket (Gamma API). For entertainment purposes only.
       </span>
     </footer>
   </main>
+
+  <!-- Educational modal: how the wheel maps probability -->
+  <div id="edu-backdrop" class="modal-backdrop" hidden></div>
+  <aside id="edu-card" class="edu-card" aria-label="How the wheel works">
+    <button id="edu-close" class="edu-card__close" aria-label="Close">×</button>
+    <h2 class="edu-card__title">🎲 Favorites Lose Too: the Hidden Math of Upsets</h2>
+    <div class="edu-card__body">
+      <p>
+        Each slice of the wheel is sized to a team's <strong>implied
+        probability</strong> from Polymarket — the crowd's live estimate of what
+        will happen. A team at 68% fills 68% of the wheel; a 10% draw is a thin
+        sliver.
+      </p>
+      <p>
+        The spin itself is <strong>fair and random</strong>. Because the slices
+        are sized by probability, the favorite lands on top <em>most</em> of the
+        time — but not always. That 10% sliver still comes up roughly
+        <strong>1 spin in 10</strong>.
+      </p>
+      <p>
+        That's the whole point: a probability is <strong>not a prophecy</strong>.
+        “Unlikely” isn't “impossible” — it's exactly why football gives us
+        upsets, giant-killings and last-minute drama. The wheel just makes the
+        odds visible, then lets chance do the rest.
+      </p>
+      <p class="edu-card__tip">
+        Try it: spin a heavy favorite a few times and watch the underdog sneak
+        through. The odds are real; the surprises are too. ⚽
+      </p>
+    </div>
+  </aside>
 
   <!-- Visitor stats: docked side panel on desktop, (i) modal on mobile -->
   <button id="stats-fab" class="stats-fab" aria-label="Visitor stats"
