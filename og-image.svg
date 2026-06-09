@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="World Cup Wheel — live odds">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="0%" r="100%">
+      <stop offset="0%" stop-color="#182030"/>
+      <stop offset="60%" stop-color="#0d1117"/>
+    </radialGradient>
+    <clipPath id="wheel"><circle cx="900" cy="315" r="215"/></clipPath>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)"/>
+
+  <!-- wheel -->
+  <g clip-path="url(#wheel)">
+    <path d="M900 315 L900 100 A215 215 0 0 1 1103 388 Z" fill="#2f81f7"/>
+    <path d="M900 315 L1103 388 A215 215 0 0 1 720 430 Z" fill="#f85149"/>
+    <path d="M900 315 L720 430 A215 215 0 0 1 900 100 Z" fill="#6e7681"/>
+  </g>
+  <circle cx="900" cy="315" r="215" fill="none" stroke="#0d1117" stroke-width="10"/>
+  <circle cx="900" cy="315" r="34" fill="#0d1117" stroke="#30363d" stroke-width="4"/>
+  <path d="M900 80 L872 126 L928 126 Z" fill="#ffd23f" stroke="#0d1117" stroke-width="4"/>
+
+  <!-- text -->
+  <text x="90" y="250" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="74" font-weight="800" fill="#e6edf3">🎡 World Cup Wheel</text>
+  <text x="92" y="320" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="36" font-weight="600" fill="#ffd23f">Live 2026 match odds, as a probability wheel</text>
+  <text x="92" y="378" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="29" fill="#8b949e">Each slice = the team's implied chance from Polymarket.</text>
+  <text x="92" y="420" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="29" fill="#8b949e">Spin it — and see why any result is possible.</text>
+  <text x="92" y="540" font-family="system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="30" font-weight="700" fill="#2f81f7">gonnafind.com</text>
+</svg>

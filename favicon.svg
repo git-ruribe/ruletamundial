@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="World Cup Wheel">
+  <defs>
+    <clipPath id="c"><circle cx="32" cy="34" r="26"/></clipPath>
+  </defs>
+  <g clip-path="url(#c)">
+    <!-- three probability sectors -->
+    <path d="M32 34 L32 8 A26 26 0 0 1 56.5 43 Z" fill="#2f81f7"/>
+    <path d="M32 34 L56.5 43 A26 26 0 0 1 16 56 Z" fill="#f85149"/>
+    <path d="M32 34 L16 56 A26 26 0 0 1 32 8 Z" fill="#6e7681"/>
+  </g>
+  <circle cx="32" cy="34" r="26" fill="none" stroke="#0d1117" stroke-width="3"/>
+  <circle cx="32" cy="34" r="4.5" fill="#0d1117"/>
+  <!-- pointer -->
+  <path d="M32 3 L27 13 L37 13 Z" fill="#ffd23f" stroke="#0d1117" stroke-width="1.2"/>
+</svg>

@@ -83,12 +83,37 @@ Discovery parameters (tag slugs, keywords, limits) live in the `CONFIG` object
 at the top of [`app.js`](./app.js) in case Polymarket changes how matches are
 tagged.
 
+## SEO & discoverability
+
+Targeted at the production domain `https://gonnafind.com/`:
+
+- **Meta**: descriptive `<title>` + `<meta description>`, `canonical`, `robots`,
+  `theme-color`, keywords.
+- **Social**: Open Graph + Twitter Card tags with a 1200×630 share image
+  (`og-image.svg`).
+- **Structured data**: `WebApplication` JSON-LD.
+- **Crawling**: `robots.txt` (allows all, blocks the temporary `explorer.html`,
+  links the sitemap) and `sitemap.xml`.
+- **PWA / icons**: `favicon.svg`, apple-touch-icon and `site.webmanifest`
+  (installable, themed).
+
+> Note: `og-image.svg` works in modern browsers and several scrapers, but a few
+> social platforms (Facebook/X) prefer raster images. For maximum preview
+> support, export it to a 1200×630 `og-image.png` and switch the `og:image` /
+> `twitter:image` URLs to `.png`.
+
 ## Files
 
-| File           | Role                                              |
-| -------------- | ------------------------------------------------- |
-| `index.html`   | Structure and layout                              |
-| `styles.css`   | Styles (dark theme, responsive, loading splash)   |
-| `app.js`       | Data (Polymarket), normalization and the wheel    |
+| File               | Role                                              |
+| ------------------ | ------------------------------------------------- |
+| `index.html`       | Structure, layout and SEO/meta                    |
+| `styles.css`       | Styles (dark theme, responsive, loading splash)   |
+| `app.js`           | Data (Polymarket), normalization and the wheel    |
+| `favicon.svg`      | Site icon (wheel)                                 |
+| `og-image.svg`     | Social share card (1200×630)                      |
+| `site.webmanifest` | PWA manifest                                      |
+| `robots.txt`       | Crawler directives + sitemap pointer              |
+| `sitemap.xml`      | Sitemap                                           |
+| `CNAME`            | Custom domain (`gonnafind.com`)                   |
 
 > For entertainment purposes only. Data from Polymarket (Gamma API).
