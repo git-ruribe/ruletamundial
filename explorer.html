@@ -61,8 +61,19 @@
       <input id="slug" type="text" value="world-cup" />
       <label>limit</label>
       <input id="limit" type="number" value="200" style="width:90px" />
-      <label><input id="onlyvs" type="checkbox" checked /> only “A vs B”</label>
       <button class="primary" id="load">Load matches</button>
+    </div>
+    <div class="row">
+      <label>sort by</label>
+      <select id="order">
+        <option value="endDate">endDate (resolves soonest)</option>
+        <option value="startDate">startDate</option>
+        <option value="volume24hr">volume24hr</option>
+        <option value="liquidity">liquidity</option>
+      </select>
+      <label><input id="asc" type="checkbox" checked /> ascending</label>
+      <label><input id="onlyvs" type="checkbox" checked /> only “A vs B”</label>
+      <label><input id="hideprops" type="checkbox" checked /> hide props (H2H / goals / winner / group…)</label>
     </div>
     <div class="row pills">
       <span class="hint">Quick slugs:</span>
@@ -103,6 +114,8 @@
   <script>
     const GAMMA = 'https://gamma-api.polymarket.com';
     const MATCH_VS = /\s+v(?:s)?\.?\s+/i;
+    // Player props / outrights that are NOT team match results.
+    const PROP_RE = /\b(h2h|goals?|contributions?|to score|scorer|winner|group|golden|mvp|to advance|advance|qualify|to reach|assists?|clean sheet|booking|cards?)\b/i;
     const $ = (id) => document.getElementById(id);
 
     let lastEvents = [];
@@ -131,16 +144,19 @@
       const slug = $('slug').value.trim();
       const limit = $('limit').value.trim() || '200';
       const onlyVs = $('onlyvs').checked;
+      const hideProps = $('hideprops').checked;
+      const order = $('order').value;
+      const ascending = $('asc').checked ? 'true' : 'false';
       setStatus('Resolving tag “' + slug + '”…');
       const t0 = performance.now();
 
       let url, events;
       const tagId = await resolveTag(slug);
       if (tagId) {
-        url = GAMMA + '/events?' + new URLSearchParams({ closed:'false', limit, order:'startDate', ascending:'true', related_tags:'true', tag_id: tagId });
+        url = GAMMA + '/events?' + new URLSearchParams({ closed:'false', limit, order, ascending, related_tags:'true', tag_id: tagId });
       } else {
         // fallback: keyword scan
-        url = GAMMA + '/events?' + new URLSearchParams({ closed:'false', limit:'500', order:'startDate', ascending:'true' });
+        url = GAMMA + '/events?' + new URLSearchParams({ closed:'false', limit:'500', order, ascending });
       }
       try {
         events = await getJSON(url);
@@ -151,6 +167,7 @@
         const kw = ['world cup','fifa world cup','mundial'];
         events = events.filter(ev => JSON.stringify([ev.title, ev.slug, (ev.tags||[]).map(t=>t.slug+' '+t.label)]).toLowerCase().split('"').some(s=>kw.some(k=>s.includes(k))));
       }
+      if (hideProps) events = events.filter(ev => !PROP_RE.test(ev.title||''));
       if (onlyVs) events = events.filter(ev => MATCH_VS.test(ev.title||''));
 
       lastEvents = events;
