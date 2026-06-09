@@ -27,6 +27,13 @@ const CONFIG = {
     'winner', 'group', 'top scorer', 'golden', 'player to', 'to advance',
     'to win the', 'champion', 'golden boot', 'to qualify', 'to reach',
   ],
+  // Public visitor widget (visits + countries). Uses Flag Counter — a static,
+  // backend-less embed. Create a free counter at https://flagcounter.com and
+  // paste your code (the part of the image URL after "/count2/") below, OR
+  // paste the full image URL in `src` to keep your chosen style.
+  analytics: {
+    flagCounter: { code: '', src: '' },
+  },
 };
 
 // Only treat an event as a match when its title looks like "A vs B".
@@ -539,6 +546,71 @@ function drawPlaceholder() {
   ctx.stroke();
 }
 
+/* --------------------------- VISITOR WIDGET ------------------------------ */
+function buildStats() {
+  const body = document.getElementById('stats-body');
+  if (!body) return;
+  const fc = CONFIG.analytics.flagCounter;
+
+  let src = fc.src;
+  if (!src && fc.code) {
+    // Dark-theme Flag Counter image matching the app palette.
+    src =
+      `https://s01.flagcounter.com/count2/${fc.code}` +
+      '/bg_161B22/txt_E6EDF3/border_30363D/columns_2/maxflags_10' +
+      '/viewers_0/labels_1/pageviews_1/flags_1/percent_0/';
+  }
+
+  if (src) {
+    const img = new Image();
+    img.src = src;
+    img.alt = 'Visitor flag counter';
+    img.loading = 'eager';
+    const link = document.createElement('a');
+    link.href = 'https://flagcounter.com';
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.appendChild(img);
+    const note = document.createElement('p');
+    note.className = 'stats-card__note';
+    note.textContent = 'Traffic stats via Flag Counter.';
+    body.replaceChildren(link, note);
+  } else {
+    body.innerHTML =
+      '<p class="stats-setup">To show visits and countries here:<br>' +
+      '1. Create a free counter at ' +
+      '<a href="https://flagcounter.com" target="_blank" rel="noopener">flagcounter.com</a>.<br>' +
+      '2. Copy your counter <strong>code</strong> (the part of the image URL ' +
+      'after <code>/count2/</code>).<br>' +
+      '3. Paste it into <code>CONFIG.analytics.flagCounter.code</code> in ' +
+      '<code>app.js</code>.</p>';
+  }
+}
+
+function wireStatsWidget() {
+  const fab = document.getElementById('stats-fab');
+  const card = document.getElementById('stats-card');
+  const backdrop = document.getElementById('stats-backdrop');
+  const closeBtn = document.getElementById('stats-close');
+  if (!fab || !card) return;
+
+  const open = () => {
+    card.classList.add('is-open');
+    backdrop.hidden = false;
+  };
+  const close = () => {
+    card.classList.remove('is-open');
+    backdrop.hidden = true;
+  };
+
+  fab.addEventListener('click', open);
+  closeBtn.addEventListener('click', close);
+  backdrop.addEventListener('click', close);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') close();
+  });
+}
+
 /* ------------------------------- EVENTS ---------------------------------- */
 el.select.addEventListener('change', (e) => selectMatch(Number(e.target.value)));
 el.spin.addEventListener('click', spin);
@@ -548,6 +620,9 @@ el.refresh.addEventListener('click', () => {
 });
 
 window.addEventListener('resize', fitWheel);
+
+buildStats();
+wireStatsWidget();
 
 fitWheel();
 requestAnimationFrame(fitWheel); // re-fit once layout/fonts have settled
