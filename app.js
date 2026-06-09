@@ -16,6 +16,10 @@
 /* ----------------------------- CONFIGURATION ----------------------------- */
 const CONFIG = {
   gamma: 'https://gamma-api.polymarket.com',
+  // Fallback proxy for regions where Polymarket is geo-blocked (e.g. Switzerland).
+  // Deploy proxy/worker.js to Cloudflare and paste its URL here (no trailing
+  // slash), e.g. 'https://wc-proxy.yoursubdomain.workers.dev'. Leave '' to disable.
+  proxyBase: '',
   // Candidate World Cup tag slugs (tried in order).
   worldCupTagSlugs: ['world-cup', '2026-fifa-world-cup', 'fifa-world-cup'],
   // Fallback keywords to recognize the World Cup in tags/title/slug.
@@ -135,6 +139,30 @@ async function getJSON(url, timeoutMs = 10000) {
   }
 }
 
+// Base URL that last worked (direct Gamma or the proxy). We try direct first;
+// if it fails and a proxy is configured, we fall through to it and remember it
+// so subsequent requests in the session don't re-try the blocked direct route.
+let preferredBase = null;
+
+// GET a Gamma path (e.g. '/events?…' or '/tags/slug/world-cup'), trying the
+// direct API first and the configured proxy as a fallback.
+async function gammaGet(path) {
+  const bases = preferredBase
+    ? [preferredBase]
+    : [CONFIG.gamma, CONFIG.proxyBase].filter(Boolean);
+  let lastErr;
+  for (const base of bases) {
+    try {
+      const data = await getJSON(base + path);
+      preferredBase = base;
+      return data;
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr;
+}
+
 // outcomes / outcomePrices arrive as a JSON string or already as an array.
 function parseList(value) {
   if (Array.isArray(value)) return value;
@@ -159,9 +187,7 @@ function pct(p) {
 // network fails in one timeout window rather than several).
 async function resolveTagIds() {
   const results = await Promise.allSettled(
-    CONFIG.worldCupTagSlugs.map((slug) =>
-      getJSON(`${CONFIG.gamma}/tags/slug/${slug}`)
-    )
+    CONFIG.worldCupTagSlugs.map((slug) => gammaGet(`/tags/slug/${slug}`))
   );
   const ids = [];
   for (const r of results) {
@@ -179,7 +205,7 @@ async function fetchEventsByTag(tagId) {
     related_tags: 'true',
     tag_id: tagId,
   });
-  return getJSON(`${CONFIG.gamma}/events?${qs.toString()}`);
+  return gammaGet(`/events?${qs.toString()}`);
 }
 
 // Fallback: if no tag is found, fetch events and filter by keywords.
@@ -190,7 +216,7 @@ async function fetchEventsFallback() {
     order: 'endDate',
     ascending: 'true',
   });
-  const events = await getJSON(`${CONFIG.gamma}/events?${qs.toString()}`);
+  const events = await gammaGet(`/events?${qs.toString()}`);
   return events.filter((ev) => matchesWorldCup(ev));
 }
 
