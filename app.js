@@ -1,37 +1,39 @@
 /* ===========================================================================
- * Ruleta Mundial — odds de Polymarket
- * App vanilla (HTML + CSS + JS). Sin build, sin dependencias.
+ * World Cup Wheel — Polymarket odds
+ * Vanilla app (HTML + CSS + JS). No build step, no dependencies.
  *
- * Flujo:
- *   1. Descubre partidos del Mundial vía la Gamma API de Polymarket (CORS ok).
- *   2. Normaliza cada partido a secciones {label, prob} quitando el "vig"
- *      (las probabilidades se reescalan para sumar 1).
- *   3. Dibuja una ruleta donde el ángulo de cada sección = prob * 360°.
- *   4. Al girar, aterriza de forma uniforme: como los sectores ya están
- *      dimensionados por probabilidad, el resultado queda ponderado por los odds.
+ * Flow:
+ *   1. Discover World Cup *matches* via Polymarket's Gamma API (CORS enabled).
+ *   2. Normalize each match to sections {label, prob}, removing the "vig"
+ *      (probabilities are rescaled to sum to 1).
+ *   3. Draw a wheel where each section's angle = prob * 360°.
+ *   4. On spin, land uniformly: since sectors are already sized by probability,
+ *      the result is naturally weighted by the odds.
  * ===========================================================================*/
 
 'use strict';
 
-/* ----------------------------- CONFIGURACIÓN ----------------------------- */
+/* ----------------------------- CONFIGURATION ----------------------------- */
 const CONFIG = {
   gamma: 'https://gamma-api.polymarket.com',
-  // Slugs de etiqueta candidatos para el Mundial (se prueban en orden).
+  // Candidate World Cup tag slugs (tried in order).
   worldCupTagSlugs: ['world-cup', '2026-fifa-world-cup', 'fifa-world-cup'],
-  // Palabras clave de respaldo para reconocer el Mundial en tags/título/slug.
+  // Fallback keywords to recognize the World Cup in tags/title/slug.
   worldCupKeywords: ['world cup', 'fifa world cup', 'mundial', 'wc 2026'],
-  // Cuántos eventos pedir por etiqueta.
+  // How many events to request per tag.
   eventLimit: 300,
-  // Etiquetas que NO son partidos 1-X-2 (outrights/props) — se descartan.
+  // Tags that are NOT 1-X-2 matches (outrights/props) — discarded.
   excludeKeywords: [
     'winner', 'group', 'top scorer', 'golden', 'player to', 'to advance',
-    'to win the', 'champion', 'golden boot', 'ganador', 'grupo',
+    'to win the', 'champion', 'golden boot', 'to qualify', 'to reach',
   ],
 };
 
-// Reconocer la sección de "empate".
+// Only treat an event as a match when its title looks like "A vs B".
+const MATCH_TITLE_RE = /\s+v(?:s)?\.?\s+/i;
+// Recognize the "draw" section.
 const DRAW_RE = /\b(draw|tie|empate|x)\b/i;
-// Reconocer outcomes binarios Sí/No.
+// Recognize binary Yes/No outcomes.
 const YES_RE = /^\s*(yes|s[ií])\s*$/i;
 const NO_RE = /^\s*(no)\s*$/i;
 
@@ -41,15 +43,15 @@ const COLORS = {
   team2: '#f85149',
 };
 
-/* ------------------------------- ESTADO ---------------------------------- */
+/* ------------------------------- STATE ----------------------------------- */
 const state = {
   matches: [],
-  current: null, // { title, sections: [{label, prob, color}], source }
-  rotation: 0, // radianes
+  current: null, // { title, sections: [{label, prob, color}], endDate }
+  rotation: 0, // radians
   spinning: false,
 };
 
-/* ------------------------------ ELEMENTOS -------------------------------- */
+/* ------------------------------ ELEMENTS --------------------------------- */
 const el = {
   select: document.getElementById('match-select'),
   refresh: document.getElementById('refresh-btn'),
@@ -59,6 +61,7 @@ const el = {
   result: document.getElementById('result'),
   resultText: document.getElementById('result-text'),
   oddsSource: document.getElementById('odds-source'),
+  loading: document.getElementById('loading'),
   canvas: document.getElementById('wheel'),
 };
 const ctx = el.canvas.getContext('2d');
@@ -69,13 +72,17 @@ function setStatus(msg, kind = '') {
   el.status.className = 'status' + (kind ? ` status--${kind}` : '');
 }
 
+function showLoading(show) {
+  el.loading.hidden = !show;
+}
+
 async function getJSON(url) {
   const res = await fetch(url, { headers: { accept: 'application/json' } });
-  if (!res.ok) throw new Error(`HTTP ${res.status} en ${url}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status} at ${url}`);
   return res.json();
 }
 
-// Los campos outcomes / outcomePrices llegan como string JSON o ya como array.
+// outcomes / outcomePrices arrive as a JSON string or already as an array.
 function parseList(value) {
   if (Array.isArray(value)) return value;
   if (typeof value === 'string') {
@@ -93,9 +100,9 @@ function pct(p) {
   return `${(p * 100).toFixed(1)}%`;
 }
 
-/* --------------------------- CAPA DE DATOS ------------------------------- */
+/* --------------------------- DATA LAYER ---------------------------------- */
 
-// Resuelve los ids de las etiquetas del Mundial a partir de sus slugs.
+// Resolve the World Cup tag ids from their slugs.
 async function resolveTagIds() {
   const ids = [];
   for (const slug of CONFIG.worldCupTagSlugs) {
@@ -103,7 +110,7 @@ async function resolveTagIds() {
       const tag = await getJSON(`${CONFIG.gamma}/tags/slug/${slug}`);
       if (tag && tag.id) ids.push(String(tag.id));
     } catch {
-      /* la etiqueta puede no existir; seguimos con las demás */
+      /* the tag may not exist; keep trying the rest */
     }
   }
   return [...new Set(ids)];
@@ -113,7 +120,7 @@ async function fetchEventsByTag(tagId) {
   const qs = new URLSearchParams({
     closed: 'false',
     limit: String(CONFIG.eventLimit),
-    order: 'startDate',
+    order: 'endDate',
     ascending: 'true',
     related_tags: 'true',
     tag_id: tagId,
@@ -121,12 +128,12 @@ async function fetchEventsByTag(tagId) {
   return getJSON(`${CONFIG.gamma}/events?${qs.toString()}`);
 }
 
-// Respaldo: si no hay etiqueta, traer eventos y filtrar por palabras clave.
+// Fallback: if no tag is found, fetch events and filter by keywords.
 async function fetchEventsFallback() {
   const qs = new URLSearchParams({
     closed: 'false',
     limit: '500',
-    order: 'startDate',
+    order: 'endDate',
     ascending: 'true',
   });
   const events = await getJSON(`${CONFIG.gamma}/events?${qs.toString()}`);
@@ -144,10 +151,11 @@ function matchesWorldCup(ev) {
   return CONFIG.worldCupKeywords.some((k) => haystacks.includes(k));
 }
 
-// Extrae las secciones {label, prob} de un evento-partido, o null si no aplica.
+// Extract {label, prob} sections from a match event, or null if not a match.
 function eventToMatch(ev) {
   const title = (ev.title || '').trim();
-  if (excluded(title)) return null;
+  // Keep only head-to-head matches ("A vs B"), not outrights/props.
+  if (!MATCH_TITLE_RE.test(title) || excluded(title)) return null;
 
   const markets = (ev.markets || []).filter(
     (m) => m && m.outcomes && (m.active !== false) && (m.closed !== true)
@@ -158,7 +166,11 @@ function eventToMatch(ev) {
   if (!sections || sections.length < 2) return null;
 
   sections = normalize(orderSections(sections));
-  return { title: title || 'Partido', sections, source: 'Polymarket' };
+  return {
+    title: title || 'Match',
+    sections,
+    endDate: ev.endDate || (markets[0] && markets[0].endDate) || null,
+  };
 }
 
 function excluded(title) {
@@ -166,7 +178,7 @@ function excluded(title) {
   return CONFIG.excludeKeywords.some((k) => t.includes(k));
 }
 
-// Patrón 1: un único mercado con 2-3 outcomes que NO son Sí/No (moneyline 1X2).
+// Pattern 1: a single market with 2-3 outcomes that are NOT Yes/No (1X2).
 function fromSingleMarket(markets) {
   const candidates = markets
     .map((m) => ({ m, outs: parseList(m.outcomes), prices: parseList(m.outcomePrices) }))
@@ -174,7 +186,7 @@ function fromSingleMarket(markets) {
     .filter(({ outs }) => !outs.every((o) => YES_RE.test(o) || NO_RE.test(o)));
 
   if (!candidates.length) return null;
-  // Preferir el de 3 outcomes (incluye empate).
+  // Prefer the one with 3 outcomes (includes the draw).
   candidates.sort((a, b) => b.outs.length - a.outs.length);
   const { outs, prices } = candidates[0];
 
@@ -184,7 +196,7 @@ function fromSingleMarket(markets) {
   }));
 }
 
-// Patrón 2: varios mercados binarios Sí/No agrupados (groupItemTitle por sección).
+// Pattern 2: several binary Yes/No markets grouped (groupItemTitle per side).
 function fromGroupedMarkets(markets) {
   const sections = [];
   for (const m of markets) {
@@ -200,7 +212,7 @@ function fromGroupedMarkets(markets) {
   return sections.length >= 2 ? sections : null;
 }
 
-// Ordena como [equipo1, empate, equipo2] cuando hay empate.
+// Order as [team1, draw, team2] when a draw is present.
 function orderSections(sections) {
   const draw = sections.filter((s) => DRAW_RE.test(s.label));
   const teams = sections.filter((s) => !DRAW_RE.test(s.label));
@@ -210,7 +222,7 @@ function orderSections(sections) {
   return sections;
 }
 
-// Quita el "vig": reescala las probabilidades para que sumen 1 y asigna color.
+// Remove the "vig": rescale probabilities to sum to 1 and assign colors.
 function normalize(sections) {
   const total = sections.reduce((s, x) => s + (x.prob > 0 ? x.prob : 0), 0);
   return sections.map((s, i) => {
@@ -223,23 +235,24 @@ function normalize(sections) {
   });
 }
 
-async function loadMatches() {
-  setStatus('Consultando Polymarket…');
-  el.select.disabled = true;
-  el.spin.disabled = true;
+function endTime(match) {
+  const t = match.endDate ? Date.parse(match.endDate) : NaN;
+  return Number.isNaN(t) ? Infinity : t;
+}
 
+async function loadMatches() {
   let events = [];
   const tagIds = await resolveTagIds();
   for (const id of tagIds) {
     try {
       events.push(...(await fetchEventsByTag(id)));
     } catch (e) {
-      console.warn('tag fetch falló', id, e);
+      console.warn('tag fetch failed', id, e);
     }
   }
   if (!events.length) events = await fetchEventsFallback();
 
-  // Dedupe por id de evento.
+  // Dedupe by event id.
   const seen = new Set();
   const matches = [];
   for (const ev of events) {
@@ -248,6 +261,9 @@ async function loadMatches() {
     const match = eventToMatch(ev);
     if (match) matches.push(match);
   }
+
+  // Sort by closing date — soonest (next up) first.
+  matches.sort((a, b) => endTime(a) - endTime(b));
 
   state.matches = matches;
   return matches;
@@ -268,7 +284,7 @@ function populateSelect() {
 function selectMatch(index) {
   state.current = state.matches[index];
   state.rotation = 0;
-  hideResult();
+  hideResult(); // clear any previous result on a different selection
   renderLegend();
   drawWheel();
   el.spin.disabled = false;
@@ -296,8 +312,8 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-/* ---------------------------- RENDER RULETA ------------------------------ */
-// Ángulos en sentido horario desde arriba (12 en punto).
+/* ---------------------------- WHEEL RENDER ------------------------------- */
+// Angles run clockwise from the top (12 o'clock).
 function sectorAngles() {
   const m = state.current;
   const angles = [];
@@ -316,7 +332,7 @@ function drawWheel() {
   const cx = W / 2;
   const cy = W / 2;
   const r = W / 2 - 10;
-  const TOP = -Math.PI / 2; // 12 en punto en coordenadas de canvas
+  const TOP = -Math.PI / 2; // 12 o'clock in canvas coordinates
 
   ctx.clearRect(0, 0, W, W);
   ctx.save();
@@ -338,7 +354,7 @@ function drawWheel() {
     drawSectorLabel(r, start, end, section);
   }
 
-  // Borde y centro.
+  // Outer ring.
   ctx.beginPath();
   ctx.arc(0, 0, r, 0, Math.PI * 2);
   ctx.lineWidth = 6;
@@ -346,6 +362,7 @@ function drawWheel() {
   ctx.stroke();
   ctx.restore();
 
+  // Hub.
   ctx.beginPath();
   ctx.arc(cx, cy, 26, 0, Math.PI * 2);
   ctx.fillStyle = '#0d1117';
@@ -362,7 +379,7 @@ function drawSectorLabel(r, start, end, section) {
   ctx.save();
   ctx.rotate(mid);
   ctx.translate(dist, 0);
-  // Mantener texto legible (no de cabeza) en la mitad izquierda.
+  // Keep text upright on the left half.
   if (mid > Math.PI / 2 || mid < -Math.PI / 2) ctx.rotate(Math.PI);
   ctx.fillStyle = '#fff';
   ctx.textAlign = 'center';
@@ -370,7 +387,7 @@ function drawSectorLabel(r, start, end, section) {
   ctx.font = '600 19px system-ui, sans-serif';
   ctx.shadowColor = 'rgba(0,0,0,0.55)';
   ctx.shadowBlur = 4;
-  // Solo mostrar etiqueta si el sector es suficientemente grande.
+  // Only show the label if the sector is large enough.
   if (sweep > 0.18) {
     const label = fit(section.label, 14);
     ctx.fillText(label, 0, -9);
@@ -384,7 +401,7 @@ function fit(text, max) {
   return text.length > max ? text.slice(0, max - 1) + '…' : text;
 }
 
-/* ------------------------------- GIRO ------------------------------------ */
+/* ------------------------------- SPIN ------------------------------------ */
 function spin() {
   if (state.spinning || !state.current) return;
   state.spinning = true;
@@ -392,10 +409,9 @@ function spin() {
   el.select.disabled = true;
   hideResult();
 
-  // Aterrizaje uniforme: ángulo final aleatorio sobre toda la circunferencia.
-  // Como los sectores están dimensionados por probabilidad, el resultado
-  // queda ponderado por los odds de forma natural.
-  const extraTurns = 5 + Math.floor(Math.random() * 4); // 5–8 vueltas
+  // Uniform landing: random angle over the full circle. Since sectors are
+  // sized by probability, the result is naturally weighted by the odds.
+  const extraTurns = 5 + Math.floor(Math.random() * 4); // 5–8 turns
   const landing = Math.random() * Math.PI * 2;
   const startRot = state.rotation % (Math.PI * 2);
   const target = startRot + extraTurns * Math.PI * 2 + landing;
@@ -419,11 +435,11 @@ function spin() {
   requestAnimationFrame(frame);
 }
 
-// Determina qué sector quedó bajo el puntero (arriba) tras detenerse.
+// Figure out which sector sits under the pointer (top) once stopped.
 function winnerAtPointer() {
   const TWO_PI = Math.PI * 2;
-  // Un punto a ángulo local `a` aparece en pantalla a `a + rotation`.
-  // El puntero está en 0 (arriba) → a = -rotation (mod 2π).
+  // A point at local angle `a` shows on screen at `a + rotation`.
+  // The pointer is at 0 (top) → a = -rotation (mod 2π).
   const localAngle = ((-state.rotation) % TWO_PI + TWO_PI) % TWO_PI;
   for (const { start, end, section } of sectorAngles()) {
     if (localAngle >= start && localAngle < end) return section;
@@ -442,29 +458,39 @@ function hideResult() {
   el.result.hidden = true;
 }
 
-/* ------------------------------ ARRANQUE --------------------------------- */
+/* ------------------------------ STARTUP ---------------------------------- */
 async function init() {
   drawPlaceholder();
+  hideResult();
+  el.legend.hidden = true;
+  el.spin.disabled = true;
+  el.select.disabled = true;
+  el.select.innerHTML = '<option>Loading matches…</option>';
+  setStatus('');
+  showLoading(true);
+
   try {
     const matches = await loadMatches();
     if (!matches.length) {
-      el.select.innerHTML = '<option>Sin partidos disponibles</option>';
+      el.select.innerHTML = '<option>No matches available</option>';
       setStatus(
-        'No se encontraron partidos del Mundial con mercado 1-X-2 en Polymarket.',
+        'No World Cup matches with a 1-X-2 market were found on Polymarket.',
         'error'
       );
       return;
     }
     populateSelect();
-    setStatus(`${matches.length} partido(s) disponibles.`, 'ok');
+    setStatus(`${matches.length} match(es) available.`, 'ok');
     selectMatch(0);
   } catch (err) {
     console.error(err);
     el.select.innerHTML = '<option>Error</option>';
     setStatus(
-      `No se pudo consultar Polymarket: ${err.message}. Revisa tu conexión e intenta refrescar.`,
+      `Could not reach Polymarket: ${err.message}. Check your connection and refresh.`,
       'error'
     );
+  } finally {
+    showLoading(false);
   }
 }
 
@@ -480,7 +506,7 @@ function drawPlaceholder() {
   ctx.stroke();
 }
 
-/* ------------------------------- EVENTOS --------------------------------- */
+/* ------------------------------- EVENTS ---------------------------------- */
 el.select.addEventListener('change', (e) => selectMatch(Number(e.target.value)));
 el.spin.addEventListener('click', spin);
 el.refresh.addEventListener('click', () => {

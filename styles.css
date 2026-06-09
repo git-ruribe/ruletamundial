@@ -148,6 +148,49 @@ html, body {
   filter: drop-shadow(0 12px 30px rgba(0, 0, 0, 0.5));
 }
 
+/* Loading splash */
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  border-radius: 50%;
+  background: rgba(13, 17, 23, 0.82);
+  backdrop-filter: blur(2px);
+  z-index: 3;
+  animation: fade-in 0.2s ease;
+}
+
+.loading__spinner {
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 5px solid rgba(255, 210, 63, 0.18);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+.loading__text {
+  margin: 0;
+  max-width: 16ch;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .wheel-pointer {
   position: absolute;
   top: -6px;
