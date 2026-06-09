@@ -1,28 +1,28 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ruleta Mundial · Odds de Polymarket</title>
+  <title>World Cup Wheel · Polymarket Odds</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <main class="app">
     <header class="app__header">
-      <h1>🎡 Ruleta Mundial</h1>
+      <h1>🎡 World Cup Wheel</h1>
       <p class="app__subtitle">
-        Probabilidades reales de <strong>Polymarket</strong>. El ángulo de cada
-        sección equivale a la probabilidad implícita del resultado.
+        Real implied probabilities from <strong>Polymarket</strong>. Each
+        section's angle matches the implied probability of that outcome.
       </p>
     </header>
 
     <section class="controls">
-      <label for="match-select" class="controls__label">Partido</label>
+      <label for="match-select" class="controls__label">Match</label>
       <div class="controls__row">
         <select id="match-select" class="controls__select" disabled>
-          <option>Cargando partidos…</option>
+          <option>Loading matches…</option>
         </select>
-        <button id="refresh-btn" class="btn btn--ghost" title="Refrescar odds">
+        <button id="refresh-btn" class="btn btn--ghost" title="Refresh odds">
           ⟳
         </button>
       </div>
@@ -33,15 +33,20 @@
       <div class="wheel-wrap">
         <div class="wheel-pointer" aria-hidden="true"></div>
         <canvas id="wheel" width="520" height="520" role="img"
-                aria-label="Ruleta de resultados"></canvas>
+                aria-label="Outcome wheel"></canvas>
+
+        <div id="loading" class="loading" hidden>
+          <div class="loading__spinner" aria-hidden="true"></div>
+          <p class="loading__text">Fetching World Cup odds from Polymarket…</p>
+        </div>
       </div>
 
       <div class="legend" id="legend" hidden></div>
 
-      <button id="spin-btn" class="btn btn--primary" disabled>Girar</button>
+      <button id="spin-btn" class="btn btn--primary" disabled>Spin</button>
 
       <div id="result" class="result" hidden>
-        <span class="result__label">Resultado</span>
+        <span class="result__label">Result</span>
         <strong id="result-text" class="result__text"></strong>
       </div>
     </section>
@@ -49,7 +54,7 @@
     <footer class="app__footer">
       <span id="odds-source" class="odds-source"></span>
       <span class="disclaimer">
-        Datos de Polymarket (Gamma API). Solo con fines de entretenimiento.
+        Data from Polymarket (Gamma API). For entertainment purposes only.
       </span>
     </footer>
   </main>

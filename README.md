@@ -1,59 +1,62 @@
-# 🎡 Ruleta Mundial
+# 🎡 World Cup Wheel
 
-App web *vanilla* (HTML + CSS + JS, sin build ni dependencias) que genera una
-**ruleta de resultados** para los partidos del Mundial usando las
-probabilidades implícitas de **Polymarket**.
+Vanilla web app (HTML + CSS + JS, no build, no dependencies) that builds a
+**spinning outcome wheel** for World Cup matches using the implied
+probabilities from **Polymarket**.
 
-Cada partido se descompone en hasta tres secciones — **Equipo 1**, **Empate**
-y **Equipo 2** — y el ángulo de cada sección equivale a la probabilidad
-implícita de ese resultado según el mercado. Al girar, la ruleta aterriza de
-forma uniforme: como los sectores ya están dimensionados por probabilidad, el
-resultado queda **ponderado por los odds** automáticamente.
+Each match is split into up to three sections — **Team 1**, **Draw** and
+**Team 2** — and each section's angle equals the implied probability of that
+outcome according to the market. On spin, the wheel lands uniformly: because
+sectors are already sized by probability, the result is **weighted by the
+odds** automatically.
 
-## Uso
+## Usage
 
-No requiere servidor ni instalación. Basta con servir los archivos estáticos:
+No server or install required — just serve the static files:
 
 ```bash
-# opción 1: abrir directamente
-xdg-open index.html      # (o doble clic)
+# option 1: open directly
+xdg-open index.html      # (or double-click)
 
-# opción 2: servidor local (recomendado)
+# option 2: local server (recommended)
 python3 -m http.server 8000
-# luego abrir http://localhost:8000
+# then open http://localhost:8000
 ```
 
-1. La app consulta la **Gamma API** de Polymarket (`gamma-api.polymarket.com`),
-   pública y con CORS habilitado — no necesita backend ni API key.
-2. Elige un partido en el menú desplegable.
-3. Pulsa **Girar**.
+1. The app queries Polymarket's **Gamma API** (`gamma-api.polymarket.com`),
+   which is public and CORS-enabled — no backend or API key needed.
+2. Pick a match from the dropdown (sorted by closing date, soonest first).
+3. Hit **Spin**.
 
-## Cómo funciona
+## How it works
 
-- **Descubrimiento**: resuelve la(s) etiqueta(s) del Mundial por slug
-  (`world-cup`, …) y pide sus eventos activos. Si no encuentra la etiqueta,
-  cae a un escaneo de eventos filtrando por palabras clave.
-- **Normalización**: cada partido se mapea a secciones `{label, prob}`.
-  Se cubren dos formatos de mercado de Polymarket:
-  - un único mercado con 2–3 outcomes (moneyline 1-X-2), o
-  - varios mercados binarios *Sí/No* agrupados (`groupItemTitle`).
-  Las probabilidades se reescalan para sumar 1 (se elimina el *vig*/overround).
-- **Ruleta**: dibujada en `<canvas>`; el barrido angular de cada sector es
-  `prob × 360°`. El giro usa `requestAnimationFrame` con desaceleración
-  (easeOutCubic) y el ganador se determina por el sector bajo el puntero.
+- **Discovery**: resolves the World Cup tag(s) by slug (`world-cup`, …) and
+  fetches their active events. If the tag isn't found, it falls back to a
+  keyword scan of events. Only head-to-head **matches** (titled "A vs B") are
+  kept; outrights and props (winner, group, top scorer, …) are filtered out.
+- **Normalization**: each match maps to `{label, prob}` sections. Two
+  Polymarket market shapes are handled:
+  - a single market with 2–3 outcomes (1-X-2 moneyline), or
+  - several grouped binary *Yes/No* markets (`groupItemTitle`).
+  Probabilities are rescaled to sum to 1 (the *vig*/overround is removed).
+- **Wheel**: drawn on a `<canvas>`; each sector's angular sweep is
+  `prob × 360°`. The spin uses `requestAnimationFrame` with easeOutCubic
+  deceleration, and the winner is the sector under the pointer.
+- **Loading splash**: a spinner overlays the wheel while odds are fetched
+  (the full World Cup payload can take a few seconds).
 
-## Configuración
+## Configuration
 
-Los parámetros de descubrimiento (slugs de etiqueta, palabras clave, límites)
-están en el objeto `CONFIG` al inicio de [`app.js`](./app.js) por si Polymarket
-cambia el etiquetado de los partidos.
+Discovery parameters (tag slugs, keywords, limits) live in the `CONFIG` object
+at the top of [`app.js`](./app.js) in case Polymarket changes how matches are
+tagged.
 
-## Archivos
+## Files
 
-| Archivo        | Rol                                            |
-| -------------- | ---------------------------------------------- |
-| `index.html`   | Estructura y layout                            |
-| `styles.css`   | Estilos (tema oscuro, responsive)              |
-| `app.js`       | Datos (Polymarket), normalización y ruleta     |
+| File           | Role                                              |
+| -------------- | ------------------------------------------------- |
+| `index.html`   | Structure and layout                              |
+| `styles.css`   | Styles (dark theme, responsive, loading splash)   |
+| `app.js`       | Data (Polymarket), normalization and the wheel    |
 
-> Solo con fines de entretenimiento. Datos de Polymarket (Gamma API).
+> For entertainment purposes only. Data from Polymarket (Gamma API).
