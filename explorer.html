@@ -97,7 +97,8 @@
       Pruébalo en vivo antes de tocar <code>app.js</code>.</p>
     <div id="analysis" class="hint">Carga primero el inventario.</div>
     <div class="row" style="margin-top:8px">
-      <button class="primary" id="testbest">🧪 Probar consulta recomendada en vivo</button>
+      <button class="primary" id="findseries">🔭 Buscar series_id (filtro de origen)</button>
+      <button id="testbest">🧪 Probar combo de tags en vivo</button>
       <button id="copyanalysis">📋 Copiar análisis para Claude</button>
       <span id="teststatus" class="hint"></span>
     </div>
@@ -375,6 +376,26 @@
           + '<code>filters.slugPrefixes: [\'' + esc(bestPrefix.slug) + '\']</code> garantiza que jamás entre nada ajeno, '
           + 'venga del tag que venga.</p>';
       }
+      if (analysis.seriesProbe) {
+        const p = analysis.seriesProbe;
+        if (p.error) {
+          html += '<p style="font-size:0.85rem">🔭 Serie: <b style="color:var(--red)">' + esc(p.error) + '</b></p>';
+        } else {
+          html += '<p style="font-size:0.85rem">🔭 Serie detectada: <b>' + esc(p.title || p.slug || '?') + '</b>'
+            + ' (id <b>' + esc(p.id) + '</b>' + (p.ticker ? ', ticker ' + esc(p.ticker) : '') + ')';
+          if (p.test) {
+            const t = p.test;
+            html += ' → <code>/events?series_id=' + esc(p.id) + '</code>: ' + t.events + ' eventos en ' + t.ms + 'ms'
+              + ' → cubre <b>' + t.covered + '/' + incCount + '</b> '
+              + (t.covered === incCount ? '<b style="color:var(--green)">✓</b>' : '<b style="color:var(--red)">(faltan ' + (incCount - t.covered) + ') ✗</b>')
+              + ' · ajenos: <b style="color:' + (t.foreign ? 'var(--red)' : 'var(--green)') + '">' + t.foreign + '</b>.'
+              + (t.covered === incCount && !t.foreign
+                  ? ' <b style="color:var(--green)">Este es el filtro de origen perfecto</b> — en <code>app.js</code>: <code>seriesId: \'' + esc(p.id) + '\'</code>.'
+                  : '');
+          }
+          html += '</p>';
+        }
+      }
       if (analysis.liveTest) {
         const t = analysis.liveTest;
         html += '<p style="font-size:0.85rem">🧪 Prueba en vivo (' + esc(t.desc) + '): '
@@ -399,30 +420,85 @@
       try {
         const id = base.id || await resolveTag(base.slug);
         if (!id) throw new Error('no se pudo resolver el tag ' + base.slug);
-        const events = []; const seen = new Set();
-        for (let offset = 0; offset < MAX_PER_TAG; offset += PAGE) {
-          const qs = new URLSearchParams({
-            closed: 'false', limit: String(PAGE), offset: String(offset),
-            order: 'endDate', ascending: 'true', tag_id: String(id),
-          });
-          for (const e of excludes) if (e.id) qs.append('exclude_tag_id', String(e.id));
-          const page = await api('/events?' + qs.toString());
-          if (!Array.isArray(page) || !page.length) break;
-          for (const ev of page) { if (!seen.has(ev.id)) { seen.add(ev.id); events.push(ev); } }
-          if (page.length < PAGE) break;
+        const append = excludes.filter((e) => e.id).map((e) => ['exclude_tag_id', String(e.id)]);
+        const score = await paginateAndScore({ tag_id: String(id) }, t0, append);
+        analysis.liveTest = { desc, ...score };
+        renderAnalysis();
+        $('teststatus').textContent = '';
+      } catch (e) { $('teststatus').textContent = 'Error: ' + e.message; }
+    }
+
+    /* ------- filtro de origen: descubrir y probar la serie (series_id) ------ */
+    // Las respuestas de lista no traen `series`, pero el detalle de un evento
+    // sí. Tomamos partidos conocidos, leemos su serie y probamos en vivo
+    // /events?series_id=… — si cubre todo sin ajenos, es LA consulta.
+    function seriesOf(ev) {
+      const list = Array.isArray(ev.series) ? ev.series : (ev.series ? [ev.series] : []);
+      return list.filter((s) => s && (s.id || s.slug));
+    }
+
+    // `append` permite parámetros repetidos (p.ej. varios exclude_tag_id).
+    async function paginateAndScore(params, t0, append = []) {
+      const events = []; const seen = new Set();
+      for (let offset = 0; offset < MAX_PER_TAG; offset += PAGE) {
+        const qs = new URLSearchParams({
+          closed: 'false', limit: String(PAGE), offset: String(offset),
+          order: 'endDate', ascending: 'true', ...params,
+        });
+        for (const [k, v] of append) qs.append(k, v);
+        const page = await api('/events?' + qs.toString());
+        if (!Array.isArray(page) || !page.length) break;
+        for (const ev of page) { if (!seen.has(ev.id)) { seen.add(ev.id); events.push(ev); } }
+        if (page.length < PAGE) break;
+      }
+      const ok = events.filter((ev) => classify(ev).ok);
+      const foreignList = ok.filter((ev) => !analysis.incSlugs.has(ev.slug));
+      const pref = analysis.bestPrefix ? analysis.bestPrefix.slug : null;
+      return {
+        events: events.length,
+        covered: ok.filter((ev) => analysis.incSlugs.has(ev.slug)).length,
+        foreign: foreignList.length,
+        foreignAfterPrefix: pref
+          ? foreignList.filter((ev) => String(ev.slug || '').startsWith(pref)).length
+          : null,
+        foreignSample: foreignList.slice(0, 8).map((ev) => ev.slug),
+        ms: Math.round(performance.now() - t0),
+      };
+    }
+
+    async function findSeries() {
+      if (!analysis) { $('teststatus').textContent = 'Carga el inventario primero.'; return; }
+      const samples = rows.filter((r) => r.cls.ok).slice(0, 3);
+      if (!samples.length) { $('teststatus').textContent = 'No hay partidos para sondear.'; return; }
+      const t0 = performance.now();
+      try {
+        let found = null;
+        for (const { ev } of samples) {
+          $('teststatus').textContent = 'Leyendo detalle de ' + ev.slug + '…';
+          const detail = await api('/events?slug=' + encodeURIComponent(ev.slug));
+          const first = Array.isArray(detail) ? detail[0] : detail;
+          const ser = first ? seriesOf(first) : [];
+          if (ser.length) { found = ser[0]; break; }
         }
-        const ok = events.filter((ev) => classify(ev).ok);
-        const covered = ok.filter((ev) => analysis.incSlugs.has(ev.slug)).length;
-        const foreignList = ok.filter((ev) => !analysis.incSlugs.has(ev.slug));
-        const pref = analysis.bestPrefix ? analysis.bestPrefix.slug + '-' : null;
-        analysis.liveTest = {
-          desc, events: events.length, covered,
-          foreign: foreignList.length,
-          foreignAfterPrefix: pref
-            ? foreignList.filter((ev) => String(ev.slug || '').startsWith(pref)).length
-            : null,
-          foreignSample: foreignList.slice(0, 8).map((ev) => ev.slug),
-          ms: Math.round(performance.now() - t0),
+        // Plan B: buscar la serie directamente por el prefijo del slug (ticker).
+        if (!found && analysis.bestPrefix) {
+          $('teststatus').textContent = 'Buscando /series?slug=' + analysis.bestPrefix.slug + '…';
+          try {
+            const s = await api('/series?slug=' + encodeURIComponent(analysis.bestPrefix.slug));
+            const arr = Array.isArray(s) ? s : [s];
+            if (arr.length && arr[0] && arr[0].id) found = arr[0];
+          } catch (e) { /* endpoint o slug no disponible */ }
+        }
+        if (!found) {
+          analysis.seriesProbe = { error: 'los eventos no exponen serie y /series no respondió — no hay filtro por serie disponible' };
+          renderAnalysis(); $('teststatus').textContent = '';
+          return;
+        }
+        $('teststatus').textContent = 'Probando /events?series_id=' + found.id + '…';
+        const test = await paginateAndScore({ series_id: String(found.id) }, t0);
+        analysis.seriesProbe = {
+          id: String(found.id), slug: found.slug || null,
+          ticker: found.ticker || null, title: found.title || null, test,
         };
         renderAnalysis();
         $('teststatus').textContent = '';
@@ -448,6 +524,7 @@
           eventosProyectados: c.projected,
         })),
         topTags: compact(analysis.tags),
+        serieDetectada: analysis.seriesProbe,
         pruebaEnVivo: analysis.liveTest,
       }, null, 2);
     }
@@ -624,6 +701,7 @@
     });
     $('copydiag').addEventListener('click', () => copyText(buildDiag(), '¡Copiado! Pégalo en el chat.'));
     $('testbest').addEventListener('click', testBest);
+    $('findseries').addEventListener('click', findSeries);
     $('copyanalysis').addEventListener('click', () => copyText(buildAnalysisDiag(), 'Análisis copiado. Pégalo en el chat.'));
     $('geninc').addEventListener('click', () => copyText(snippet('includeSlugs'), 'Snippet includeSlugs copiado.'));
     $('genexc').addEventListener('click', () => copyText(snippet('excludeSlugs'), 'Snippet excludeSlugs copiado.'));

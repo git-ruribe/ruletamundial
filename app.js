@@ -20,6 +20,12 @@ const CONFIG = {
   // Deploy proxy/worker.js to Cloudflare and paste its URL here (no trailing
   // slash). Leave '' to disable.
   proxyBase: 'https://wc-proxy.zcv25kyj7b.workers.dev',
+  // Source-side filter of choice: the Gamma series that groups the World
+  // Cup game events (the 'fifwc' family). When set, events are fetched with
+  // /events?series_id=… — the cheapest, most precise query — and the tag
+  // queries below are only a fallback. Find/verify the id with the
+  // "Buscar series_id" probe in explorer.html. '' disables it.
+  seriesId: '',
   // Candidate World Cup tag slugs (tried in order). The "filtro óptimo"
   // analysis in explorer.html tells which single tag covers every match —
   // once confirmed, narrow this list and set relatedTags to false.
@@ -290,6 +296,27 @@ async function fetchEventsByTag(tagId, excludeTagIds = []) {
   return events;
 }
 
+// Fetch ALL open events of a series (a sports "league" grouping on Gamma —
+// for game events this is the tightest server-side filter available).
+async function fetchEventsBySeries(seriesId) {
+  const events = [];
+  for (let offset = 0; offset < CONFIG.eventLimit; offset += CONFIG.pageSize) {
+    const qs = new URLSearchParams({
+      closed: 'false',
+      limit: String(CONFIG.pageSize),
+      offset: String(offset),
+      order: 'endDate',
+      ascending: 'true',
+      series_id: String(seriesId),
+    });
+    const page = await gammaGet(`/events?${qs.toString()}`);
+    if (!Array.isArray(page) || !page.length) break;
+    events.push(...page);
+    if (page.length < CONFIG.pageSize) break;
+  }
+  return events;
+}
+
 // Fallback: if no tag is found, fetch events (paginated) and filter by keywords.
 async function fetchEventsFallback() {
   const events = [];
@@ -404,21 +431,34 @@ function isLive(match) {
 async function loadMatches() {
   let events = [];
   let reached = false; // did any request to Polymarket actually succeed?
-  const [tagIds, excludeIds] = await Promise.all([
-    resolveTagIds(CONFIG.worldCupTagSlugs),
-    CONFIG.excludeTagSlugs.length ? resolveTagIds(CONFIG.excludeTagSlugs) : [],
-  ]);
-  if (tagIds.length) reached = true;
 
-  const fetched = await Promise.allSettled(tagIds.map((id) => fetchEventsByTag(id, excludeIds)));
-  for (const r of fetched) {
-    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-      events.push(...r.value);
+  // Preferred source: the series groups exactly the game events.
+  if (CONFIG.seriesId) {
+    try {
+      events = await fetchEventsBySeries(CONFIG.seriesId);
       reached = true;
+    } catch {
+      // fall through to the tag-based discovery below
     }
   }
-  // If tags couldn't be resolved/fetched, try the open fallback query. Letting
-  // it throw here surfaces a real connectivity/geo-block error to the caller.
+
+  if (!events.length) {
+    const [tagIds, excludeIds] = await Promise.all([
+      resolveTagIds(CONFIG.worldCupTagSlugs),
+      CONFIG.excludeTagSlugs.length ? resolveTagIds(CONFIG.excludeTagSlugs) : [],
+    ]);
+    if (tagIds.length) reached = true;
+
+    const fetched = await Promise.allSettled(tagIds.map((id) => fetchEventsByTag(id, excludeIds)));
+    for (const r of fetched) {
+      if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+        events.push(...r.value);
+        reached = true;
+      }
+    }
+  }
+  // If series/tags couldn't be resolved/fetched, try the open fallback query.
+  // Letting it throw here surfaces a real connectivity/geo-block error.
   if (!events.length) {
     events = await fetchEventsFallback();
     reached = true;
