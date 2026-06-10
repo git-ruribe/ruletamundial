@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Primary SEO -->
+  <title>World Cup Wheel — Live 2026 Match Odds from Polymarket</title>
+  <meta name="description" content="Spin a probability wheel for 2026 FIFA World Cup matches, sized by live implied odds from Polymarket. See each team's win and draw chances — and why any result is possible." />
+  <link rel="canonical" href="https://gonnafind.com/" />
+  <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+  <meta name="author" content="gonnafind.com" />
+  <meta name="theme-color" content="#0d1117" />
+  <meta name="keywords" content="World Cup 2026, World Cup odds, Polymarket, match probabilities, prediction markets, soccer odds, FIFA World Cup, win probability, draw odds, football predictions, odds wheel" />
+
+  <!-- Open Graph (Facebook, LinkedIn, WhatsApp, Discord, …) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="World Cup Wheel" />
+  <meta property="og:title" content="World Cup Wheel — Live 2026 Match Odds" />
+  <meta property="og:description" content="A probability wheel for World Cup matches, sized by live Polymarket odds. Spin it and see why any result is possible." />
+  <meta property="og:url" content="https://gonnafind.com/" />
+  <meta property="og:image" content="https://gonnafind.com/og-image.png" />
+  <meta property="og:image:type" content="image/png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:image:alt" content="World Cup Wheel — odds-sized probability wheel" />
+  <meta property="og:locale" content="en_US" />
+
+  <!-- Twitter / X -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="World Cup Wheel — Live 2026 Match Odds" />
+  <meta name="twitter:description" content="A probability wheel for World Cup matches, sized by live Polymarket odds. Spin it — any result is possible." />
+  <meta name="twitter:image" content="https://gonnafind.com/og-image.png" />
+
+  <!-- Icons & PWA -->
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/favicon.svg" />
+  <link rel="manifest" href="/site.webmanifest" />
+
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "World Cup Wheel",
+    "url": "https://gonnafind.com/",
+    "description": "A probability wheel for 2026 FIFA World Cup matches, sized by live implied odds from Polymarket.",
+    "applicationCategory": "GameApplication",
+    "operatingSystem": "Any",
+    "browserRequirements": "Requires JavaScript",
+    "inLanguage": "en",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "author": { "@type": "Organization", "name": "gonnafind.com", "url": "https://gonnafind.com/" }
+  }
+  </script>
+</head>
+<body>
+  <main class="app">
+    <header class="app__header">
+      <h1>🎡 World Cup Wheel</h1>
+    </header>
+
+    <section class="controls">
+      <div class="controls__labelrow">
+        <label for="match-select" class="controls__label">Match</label>
+        <span id="live-badge" class="live-chip" hidden>LIVE</span>
+        <button id="why-open" class="why-btn" hidden>🧠 Why these odds?</button>
+      </div>
+      <div class="controls__row">
+        <select id="match-select" class="controls__select" disabled>
+          <option>Loading matches…</option>
+        </select>
+        <button id="refresh-btn" class="btn btn--ghost" title="Refresh odds">
+          ⟳
+        </button>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="wheel-area">
+      <div class="wheel-slot">
+        <div class="wheel-wrap">
+          <div class="wheel-pointer" aria-hidden="true"></div>
+          <canvas id="wheel" width="520" height="520" role="img"
+                  aria-label="Outcome wheel"></canvas>
+
+          <div id="loading" class="loading" hidden>
+            <div class="loading__spinner" aria-hidden="true"></div>
+            <p class="loading__text">Fetching World Cup odds from Polymarket…</p>
+          </div>
+
+          <div id="load-error" class="loading load-error" hidden role="alert">
+            <span class="load-error__icon" aria-hidden="true">⚠️</span>
+            <p id="load-error-text" class="load-error__text"></p>
+            <button id="retry-btn" class="btn load-error__retry">Retry</button>
+          </div>
+        </div>
+      </div>
+
+      <button id="spin-btn" class="btn btn--primary" disabled>Spin</button>
+
+      <div id="result" class="result is-hidden">
+        <span id="result-label" class="result__label">Result</span>
+        <div class="result__main">
+          <img id="result-flag" class="result__flag" alt="" />
+          <strong id="result-text" class="result__text"></strong>
+        </div>
+        <button id="share-btn" class="btn share-btn" type="button">
+          <span class="share-btn__icon" aria-hidden="true">📤</span>
+          <span id="share-label">Share result</span>
+        </button>
+      </div>
+    </section>
+
+    <footer class="app__footer">
+      <button id="edu-open" class="edu-link">
+        🎲 Favorites lose too — why <em>any</em> team can win →
+      </button>
+      <span id="last-updated" class="last-updated"></span>
+      <span class="disclaimer">
+        Polymarket odds · For entertainment only.
+      </span>
+    </footer>
+  </main>
+
+  <!-- Celebration confetti (full-viewport overlay; pointer-events: none) -->
+  <canvas id="confetti" class="confetti" aria-hidden="true"></canvas>
+
+  <!-- Educational modal: how the wheel maps probability -->
+  <div id="edu-backdrop" class="modal-backdrop" hidden></div>
+  <aside id="edu-card" class="edu-card" aria-label="How the wheel works">
+    <button id="edu-close" class="edu-card__close" aria-label="Close">×</button>
+    <h2 class="edu-card__title">🎲 Favorites Lose Too: the Hidden Math of Upsets</h2>
+    <div class="edu-card__body">
+      <p>
+        Each slice of the wheel is sized to a team's <strong>implied
+        probability</strong> from Polymarket — the crowd's live estimate of what
+        will happen. A team at 68% fills 68% of the wheel; a 10% draw is a thin
+        sliver.
+      </p>
+      <p>
+        The spin itself is <strong>fair and random</strong>. Because the slices
+        are sized by probability, the favorite lands on top <em>most</em> of the
+        time — but not always. That 10% sliver still comes up roughly
+        <strong>1 spin in 10</strong>.
+      </p>
+      <p>
+        That's the whole point: a probability is <strong>not a prophecy</strong>.
+        “Unlikely” isn't “impossible” — it's exactly why football gives us
+        upsets, giant-killings and last-minute drama. The wheel just makes the
+        odds visible, then lets chance do the rest.
+      </p>
+      <p class="edu-card__tip">
+        Try it: spin a heavy favorite a few times and watch the underdog sneak
+        through. The odds are real; the surprises are too. ⚽
+      </p>
+    </div>
+  </aside>
+
+  <!-- "Why these odds?" modal: Polymarket's generated context for the match -->
+  <div id="why-backdrop" class="modal-backdrop" hidden></div>
+  <aside id="why-card" class="why-card" aria-label="Why these odds">
+    <button id="why-close" class="why-card__close" aria-label="Close">×</button>
+    <span class="why-card__kicker">🧠 Why these odds?</span>
+    <h2 id="why-title" class="why-card__title"></h2>
+    <p id="why-body" class="why-card__body"></p>
+    <p id="why-updated" class="why-card__meta" hidden></p>
+    <p class="why-card__src">
+      Auto-generated context from Polymarket. Informational only — not advice.
+    </p>
+  </aside>
+
+  <!-- Visitor stats: docked side panel on desktop, (i) modal on mobile -->
+  <button id="stats-fab" class="stats-fab" aria-label="Visitor stats"
+          title="Visitor stats">ℹ</button>
+  <div id="stats-backdrop" class="stats-backdrop" hidden></div>
+  <aside id="stats-card" class="stats-card" aria-label="Visitor statistics">
+    <div class="stats-card__head">
+      <span class="stats-card__title">Visitors</span>
+      <button id="stats-close" class="stats-card__close" aria-label="Close">×</button>
+    </div>
+    <div id="stats-body" class="stats-card__body"></div>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>

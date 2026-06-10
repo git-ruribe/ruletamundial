@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Inventario Polymarket — Mundial (herramienta interna)</title>
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --text: #e6edf3;
+      --muted: #8b949e; --border: #30363d; --accent: #ffd23f; --blue: #2f81f7;
+      --green: #3fb950; --red: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 18px; line-height: 1.45;
+    }
+    h1 { font-size: 1.3rem; margin: 0 0 4px; }
+    h3 { margin: 18px 0 8px; }
+    .sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 16px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+    label { font-size: 0.78rem; color: var(--muted); }
+    input[type="text"], input[type="number"], select {
+      background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 10px; font-size: 0.9rem;
+    }
+    input.grow { flex: 1; min-width: 220px; }
+    button {
+      background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 14px; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+    }
+    button.primary { background: linear-gradient(180deg,#ffdc5e,var(--accent)); color:#1a1300; border-color:#d8a400; }
+    button:hover { filter: brightness(1.08); }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
+    .status { font-size: 0.84rem; color: var(--muted); min-height: 1.2em; }
+    .status.err { color: var(--red); }
+    .status.ok { color: var(--green); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+    .chip { background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 0.76rem; color: var(--muted); }
+    .chip b { color: var(--text); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th, td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--bg); }
+    tr.in td:first-child { border-left: 3px solid var(--green); }
+    tr.out td:first-child { border-left: 3px solid var(--red); }
+    td.slug, td.when { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+    td.reason { color: var(--red); }
+    tr.in td.reason { color: var(--green); }
+    .tablewrap { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+    pre { background: #06090f; border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow: auto; font-size: 0.78rem; max-height: 360px; }
+    textarea { width: 100%; height: 160px; background: #06090f; color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.76rem; }
+    .hint { font-size: 0.76rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>🔎 Inventario Polymarket — Mundial <span class="sub">— herramienta interna</span></h1>
+  <p class="sub">Corre en tu navegador contra <code>gamma-api.polymarket.com</code> (con respaldo vía proxy).
+    Trae <strong>TODOS</strong> los eventos de los tags del Mundial con paginación completa, clasifica cada uno con la
+    <strong>misma lógica exacta de la rueda</strong> (app.js: <code>teams</code> + mercados <code>moneyline</code>) y te dice
+    por qué entra o por qué queda fuera. Desde aquí exportas CSV/JSON y generas los filtros para <code>app.js</code>.</p>
+
+  <!-- ───────────────────────── 1 · CARGA ───────────────────────── -->
+  <div class="card">
+    <div class="row">
+      <label>Tags (los mismos de la app)</label>
+      <input id="slugs" type="text" class="grow" value="world-cup, 2026-fifa-world-cup, fifa-world-cup" />
+      <button class="primary" id="load">⟳ Cargar TODO (paginado)</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <!-- ───────────────────────── 2 · RESUMEN + FILTROS DE VISTA ───── -->
+  <div class="card">
+    <div id="counters" class="chips"></div>
+    <div id="reasons" class="chips"></div>
+    <div class="row">
+      <label>ver</label>
+      <select id="view">
+        <option value="all">todos</option>
+        <option value="in">solo los que ENTRAN a la rueda</option>
+        <option value="out">solo EXCLUIDOS</option>
+      </select>
+      <label>buscar</label>
+      <input id="q" type="text" placeholder="título o slug…" />
+      <label><input id="onlyvs" type="checkbox" /> solo título “A vs B”</label>
+      <label><input id="onlyfuture" type="checkbox" /> solo futuros</label>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 3 · EXPORTAR / FILTROS APP ───────── -->
+  <div class="card">
+    <div class="row">
+      <button id="dlcsv">⬇️ Descargar CSV (filas visibles)</button>
+      <button id="dljson">⬇️ Descargar JSON (filas visibles)</button>
+      <button class="primary" id="copydiag">📋 Copiar resumen compacto para Claude</button>
+      <span id="copystatus" class="hint"></span>
+    </div>
+    <div class="row">
+      <button id="selvis">☑ Seleccionar visibles</button>
+      <button id="selnone">☐ Limpiar selección</button>
+      <button id="geninc">Generar <code>includeSlugs</code> de la selección</button>
+      <button id="genexc">Generar <code>excludeSlugs</code> de la selección</button>
+      <span id="selcount" class="hint"></span>
+    </div>
+    <p class="hint">El snippet generado se pega tal cual en <code>CONFIG.filters</code> de <code>app.js</code>:
+      con <code>includeSlugs</code> la rueda muestra <em>solo</em> esos partidos; con <code>excludeSlugs</code> los descarta.</p>
+    <textarea id="diag" readonly placeholder="Aquí aparece el resumen / snippet…"></textarea>
+  </div>
+
+  <!-- ───────────────────────── 4 · TABLA ─────────────────────────── -->
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th></th><th>Rueda</th><th>Inicio (local)</th><th>Título</th>
+          <th>ML abiertos/total</th><th>Motivo / estado</th><th>slug</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"><tr><td colspan="7" class="hint">Pulsa “Cargar TODO”.</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- ───────────────────────── 5 · INSPECCIÓN PUNTUAL ────────────── -->
+  <div class="card" style="margin-top:16px">
+    <div class="row">
+      <label>Inspeccionar un evento (slug o URL polymarket.com/event/…)</label>
+      <input id="evslug" type="text" class="grow" placeholder="p. ej. mexico-vs-canada o URL completa" />
+      <button id="inspect">Inspeccionar</button>
+    </div>
+    <div class="row">
+      <label>Query cruda</label>
+      <input id="raw" type="text" class="grow" placeholder="/events?closed=false&limit=5&order=volume24hr&ascending=false" />
+      <button id="runraw">Ejecutar</button>
+    </div>
+  </div>
+
+  <h3>JSON crudo <span class="hint">(de la inspección / query cruda)</span></h3>
+  <pre id="raw-out">—</pre>
+
+  <script>
+    'use strict';
+    const GAMMA = 'https://gamma-api.polymarket.com';
+    const PROXY = 'https://wc-proxy.zcv25kyj7b.workers.dev'; // mismo proxy de la app
+    const PAGE = 100;          // tamaño de página (la API trunca límites grandes)
+    const MAX_PER_TAG = 2000;  // tope de seguridad por tag
+    const MATCH_VS = /\s+v(?:s)?\.?\s+/i;
+    const YES_RE = /^\s*(yes|s[ií])\s*$/i; // mismo regex que app.js
+    const $ = (id) => document.getElementById(id);
+
+    let rows = [];     // [{ev, cls}] — todo lo cargado
+    let visible = [];  // subconjunto tras filtros de vista
+    const selected = new Set(); // slugs seleccionados
+
+    function setStatus(msg, kind='') { const s=$('status'); s.textContent=msg||''; s.className='status'+(kind?' '+kind:''); }
+    function esc(s){ const d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+    function parseList(v) {
+      if (Array.isArray(v)) return v;
+      if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p)?p:[]; } catch { return []; } }
+      return [];
+    }
+
+    /* ------------- red: directo a Gamma con respaldo por proxy ------------- */
+    let base = GAMMA;
+    async function getJSON(url) {
+      const res = await fetch(url, { headers: { accept: 'application/json' } });
+      const text = await res.text();
+      if (!res.ok) throw new Error('HTTP ' + res.status + ' — ' + text.slice(0,200));
+      try { return JSON.parse(text); } catch { return text; }
+    }
+    async function api(path) {
+      try { return await getJSON(base + path); }
+      catch (e) {
+        const other = base === GAMMA ? PROXY : GAMMA;
+        if (!other) throw e;
+        const data = await getJSON(other + path);
+        base = other;
+        return data;
+      }
+    }
+    async function resolveTag(slug) {
+      try { const t = await api('/tags/slug/' + encodeURIComponent(slug)); return t && t.id ? String(t.id) : null; }
+      catch { return null; }
+    }
+
+    /* --------- clasificación: réplica EXACTA de eventToMatch (app.js) ------ */
+    // La rueda exige: ev.teams con ≥2 equipos, y ≥2 mercados con
+    // sportsMarketType === 'moneyline' activos, no cerrados y con groupItemTitle.
+    function classify(ev) {
+      const teams = Array.isArray(ev.teams) ? ev.teams : [];
+      const markets = ev.markets || [];
+      const ml = markets.filter((m) => m && m.sportsMarketType === 'moneyline');
+      const open = ml.filter((m) => m.active !== false && m.closed !== true);
+      const usable = open.filter((m) => {
+        const outs = parseList(m.outcomes);
+        return (m.groupItemTitle || '').trim() && outs.some((o) => YES_RE.test(o));
+      });
+      let ok = false, reason = '';
+      if (teams.length < 2)        reason = 'sin `teams` — no es evento de partido';
+      else if (!markets.length)    reason = 'evento sin mercados';
+      else if (!ml.length)         reason = 'sin mercado moneyline (1X2)';
+      else if (open.length < 2)    reason = 'moneyline inactivo/cerrado (' + open.length + '/' + ml.length + ' abiertos)';
+      else if (usable.length < 2)  reason = 'moneyline sin groupItemTitle u outcome “Yes”';
+      else { ok = true; reason = 'entra a la rueda ✓'; }
+      return { ok, reason, mlTotal: ml.length, mlOpen: open.length, teams: teams.length };
+    }
+
+    /* ------------------- carga paginada completa por tags ------------------ */
+    async function loadAll() {
+      const slugs = $('slugs').value.split(',').map((s) => s.trim()).filter(Boolean);
+      setStatus('Resolviendo tags: ' + slugs.join(', ') + '…');
+      const ids = [];
+      for (const s of slugs) { const id = await resolveTag(s); if (id && !ids.includes(id)) ids.push(id); }
+      if (!ids.length) { setStatus('No se resolvió ningún tag.', 'err'); return; }
+
+      const events = [];
+      const seen = new Set();
+      for (const id of ids) {
+        for (let offset = 0; offset < MAX_PER_TAG; offset += PAGE) {
+          setStatus('tag ' + id + ' · offset ' + offset + ' · acumulados ' + events.length + '…');
+          const qs = new URLSearchParams({
+            closed: 'false', limit: String(PAGE), offset: String(offset),
+            order: 'endDate', ascending: 'true', related_tags: 'true', tag_id: id,
+          });
+          let page;
+          try { page = await api('/events?' + qs.toString()); }
+          catch (e) { setStatus('Error en tag ' + id + ' offset ' + offset + ': ' + e.message, 'err'); break; }
+          if (!Array.isArray(page) || !page.length) break;
+          for (const ev of page) { if (!seen.has(ev.id)) { seen.add(ev.id); events.push(ev); } }
+          if (page.length < PAGE) break; // página corta = no hay más
+        }
+      }
+
+      rows = events.map((ev) => ({ ev, cls: classify(ev) }));
+      // Orden: por inicio (los partidos primero); sin fecha al final.
+      rows.sort((a, b) => when(a.ev) - when(b.ev));
+      setStatus(ids.length + ' tag(s) · ' + rows.length + ' evento(s) únicos · '
+        + rows.filter((r) => r.cls.ok).length + ' entran a la rueda', 'ok');
+      render();
+    }
+
+    function when(ev) {
+      const t = Date.parse(ev.startTime || ev.startDate || ev.endDate || '');
+      return Number.isNaN(t) ? Infinity : t;
+    }
+    function whenStr(ev) {
+      const t = when(ev);
+      if (t === Infinity) return '—';
+      return new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
+    /* ----------------------------- render ---------------------------------- */
+    function applyView() {
+      const view = $('view').value;
+      const q = $('q').value.trim().toLowerCase();
+      const onlyVs = $('onlyvs').checked;
+      const onlyFuture = $('onlyfuture').checked;
+      const now = Date.now();
+      visible = rows.filter(({ ev, cls }) => {
+        if (view === 'in' && !cls.ok) return false;
+        if (view === 'out' && cls.ok) return false;
+        if (onlyVs && !MATCH_VS.test(ev.title || '')) return false;
+        if (onlyFuture && when(ev) < now) return false;
+        if (q && !((ev.title || '').toLowerCase().includes(q) || (ev.slug || '').toLowerCase().includes(q))) return false;
+        return true;
+      });
+    }
+
+    function render() {
+      applyView();
+      const inAll = rows.filter((r) => r.cls.ok).length;
+      $('counters').innerHTML =
+        '<span class="chip">eventos: <b>' + rows.length + '</b></span>'
+        + '<span class="chip">entran a la rueda: <b>' + inAll + '</b></span>'
+        + '<span class="chip">excluidos: <b>' + (rows.length - inAll) + '</b></span>'
+        + '<span class="chip">visibles: <b>' + visible.length + '</b></span>';
+
+      // Desglose de motivos de exclusión.
+      const byReason = {};
+      for (const r of rows) if (!r.cls.ok) byReason[r.cls.reason] = (byReason[r.cls.reason] || 0) + 1;
+      $('reasons').innerHTML = Object.entries(byReason)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => '<span class="chip">' + esc(k) + ': <b>' + n + '</b></span>').join('');
+
+      $('tbody').innerHTML = visible.map(({ ev, cls }) => {
+        const checked = selected.has(ev.slug) ? ' checked' : '';
+        return '<tr class="' + (cls.ok ? 'in' : 'out') + '">'
+          + '<td><input type="checkbox" data-slug="' + esc(ev.slug) + '"' + checked + '></td>'
+          + '<td>' + (cls.ok ? '✅' : '—') + '</td>'
+          + '<td class="when">' + esc(whenStr(ev)) + '</td>'
+          + '<td>' + esc(ev.title || '(sin título)') + '</td>'
+          + '<td>' + cls.mlOpen + '/' + cls.mlTotal + '</td>'
+          + '<td class="reason">' + esc(cls.reason) + '</td>'
+          + '<td class="slug">' + esc(ev.slug || '') + '</td>'
+          + '</tr>';
+      }).join('') || '<tr><td colspan="7" class="hint">Nada que mostrar con estos filtros.</td></tr>';
+      updateSelCount();
+    }
+
+    function updateSelCount() { $('selcount').textContent = selected.size + ' seleccionado(s)'; }
+
+    /* ----------------------------- exportes --------------------------------- */
+    function rowOut({ ev, cls }) {
+      return {
+        rueda: cls.ok ? 'SI' : 'NO',
+        motivo: cls.reason,
+        titulo: ev.title || '',
+        slug: ev.slug || '',
+        inicio: ev.startTime || ev.startDate || '',
+        fin: ev.endDate || '',
+        equipos: cls.teams,
+        ml_abiertos: cls.mlOpen,
+        ml_total: cls.mlTotal,
+        tags: (ev.tags || []).map((t) => t.slug || t.label).join('|'),
+        id: ev.id,
+      };
+    }
+    function toCSV(list) {
+      const cols = Object.keys(rowOut(list[0] || rows[0]));
+      const cell = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      return [cols.join(',')].concat(list.map((r) => cols.map((c) => cell(rowOut(r)[c])).join(','))).join('\n');
+    }
+    function download(name, text, type) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type }));
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    async function copyText(text, okMsg) {
+      $('diag').value = text;
+      try { await navigator.clipboard.writeText(text); $('copystatus').textContent = okMsg; }
+      catch { $('diag').select(); document.execCommand('copy'); $('copystatus').textContent = 'Seleccionado — Ctrl/Cmd+C.'; }
+    }
+
+    // Resumen compacto: cabecera + una línea por evento. Pensado para pegarse
+    // en el chat sin reventar el contexto.
+    function buildDiag() {
+      const inAll = rows.filter((r) => r.cls.ok).length;
+      const byReason = {};
+      for (const r of rows) if (!r.cls.ok) byReason[r.cls.reason] = (byReason[r.cls.reason] || 0) + 1;
+      const head = {
+        nota: 'Inventario Polymarket (explorer v2) — clasificado con la lógica exacta de app.js',
+        fecha: new Date().toISOString(),
+        totalEventos: rows.length,
+        entranRueda: inAll,
+        motivosExclusion: byReason,
+      };
+      const lines = visible.map(({ ev, cls }) =>
+        [cls.ok ? 'SI' : 'NO', (ev.startTime || ev.startDate || '').slice(0, 16),
+         cls.mlOpen + '/' + cls.mlTotal, ev.slug, ev.title, cls.ok ? '' : cls.reason]
+          .join('\t'));
+      return JSON.stringify(head, null, 2) + '\n\nrueda\tinicio\tML\tslug\ttitulo\tmotivo\n' + lines.join('\n');
+    }
+
+    function snippet(field) {
+      const list = [...selected].sort();
+      return 'filters: {\n'
+        + '  includeSlugs: ' + (field === 'includeSlugs' ? JSON.stringify(list, null, 2).replace(/\n/g, '\n  ') : '[]') + ',\n'
+        + '  excludeSlugs: ' + (field === 'excludeSlugs' ? JSON.stringify(list, null, 2).replace(/\n/g, '\n  ') : '[]') + ',\n'
+        + '},';
+    }
+
+    /* ------------------------ inspección puntual ---------------------------- */
+    async function inspectEvent() {
+      let v = $('evslug').value.trim();
+      if (!v) return;
+      const m = v.match(/event\/([^/?#]+)/); if (m) v = m[1];
+      setStatus('Buscando evento “' + v + '”…');
+      try {
+        const ev = await api('/events?slug=' + encodeURIComponent(v));
+        const arr = Array.isArray(ev) ? ev : [ev];
+        $('raw-out').textContent = JSON.stringify(arr, null, 2);
+        if (arr.length && arr[0]) {
+          const cls = classify(arr[0]);
+          setStatus('“' + (arr[0].title || v) + '” → ' + cls.reason, cls.ok ? 'ok' : 'err');
+        } else setStatus('Sin resultados para ' + v, 'err');
+      } catch (e) { setStatus('Error: ' + e.message, 'err'); }
+    }
+    async function runRaw() {
+      let path = $('raw').value.trim();
+      if (!path) return;
+      if (!path.startsWith('/')) path = '/' + path;
+      setStatus('Ejecutando ' + path + '…');
+      try {
+        const data = await api(path);
+        $('raw-out').textContent = JSON.stringify(data, null, 2);
+        setStatus('OK · ' + (Array.isArray(data) ? data.length + ' item(s)' : 'objeto'), 'ok');
+      } catch (e) { setStatus('Error: ' + e.message, 'err'); }
+    }
+
+    /* ------------------------------ eventos --------------------------------- */
+    $('load').addEventListener('click', loadAll);
+    ['view', 'q', 'onlyvs', 'onlyfuture'].forEach((id) =>
+      $(id).addEventListener('input', render));
+    $('tbody').addEventListener('change', (e) => {
+      const cb = e.target.closest('input[type="checkbox"]');
+      if (!cb) return;
+      if (cb.checked) selected.add(cb.dataset.slug); else selected.delete(cb.dataset.slug);
+      updateSelCount();
+    });
+    $('selvis').addEventListener('click', () => { visible.forEach((r) => selected.add(r.ev.slug)); render(); });
+    $('selnone').addEventListener('click', () => { selected.clear(); render(); });
+    $('dlcsv').addEventListener('click', () => {
+      if (!visible.length) return;
+      download('polymarket-mundial.csv', toCSV(visible), 'text/csv');
+    });
+    $('dljson').addEventListener('click', () => {
+      if (!visible.length) return;
+      download('polymarket-mundial.json', JSON.stringify(visible.map(rowOut), null, 2), 'application/json');
+    });
+    $('copydiag').addEventListener('click', () => copyText(buildDiag(), '¡Copiado! Pégalo en el chat.'));
+    $('geninc').addEventListener('click', () => copyText(snippet('includeSlugs'), 'Snippet includeSlugs copiado.'));
+    $('genexc').addEventListener('click', () => copyText(snippet('excludeSlugs'), 'Snippet excludeSlugs copiado.'));
+    $('inspect').addEventListener('click', inspectEvent);
+    $('runraw').addEventListener('click', runRaw);
+
+    loadAll(); // auto-carga al abrir
+  </script>
+</body>
+</html>
