@@ -89,6 +89,20 @@
     </div>
   </div>
 
+  <!-- ───────────────────────── 2b · FILTRO ÓPTIMO ───────────────── -->
+  <div class="card">
+    <h3 style="margin:0 0 6px">🎯 Análisis de filtro óptimo</h3>
+    <p class="hint" style="margin:0 0 8px">Calculado con los datos ya cargados (sin peticiones extra): qué tag o serie
+      cubre el 100% de los partidos que entran a la rueda con el mínimo de eventos descargados.
+      Pruébalo en vivo antes de tocar <code>app.js</code>.</p>
+    <div id="analysis" class="hint">Carga primero el inventario.</div>
+    <div class="row" style="margin-top:8px">
+      <button class="primary" id="testbest">🧪 Probar consulta recomendada en vivo</button>
+      <button id="copyanalysis">📋 Copiar análisis para Claude</button>
+      <span id="teststatus" class="hint"></span>
+    </div>
+  </div>
+
   <!-- ───────────────────────── 3 · EXPORTAR / FILTROS APP ───────── -->
   <div class="card">
     <div class="row">
@@ -238,6 +252,127 @@
       setStatus(ids.length + ' tag(s) · ' + rows.length + ' evento(s) únicos · '
         + rows.filter((r) => r.cls.ok).length + ' entran a la rueda', 'ok');
       render();
+      computeAnalysis();
+    }
+
+    /* ------------------- análisis de filtro óptimo -------------------------- */
+    // Con el inventario completo ya sabemos qué tags/series lleva cada evento.
+    // Buscamos el identificador que cubre TODOS los partidos de la rueda con el
+    // menor número de eventos totales (= la consulta más barata posible).
+    let analysis = null;
+
+    function tally(getKeys) {
+      const map = new Map();
+      for (const { ev, cls } of rows) {
+        for (const k of getKeys(ev)) {
+          if (!k || !k.slug) continue;
+          let s = map.get(k.slug);
+          if (!s) { s = { slug: k.slug, id: k.id || null, cover: 0, total: 0 }; map.set(k.slug, s); }
+          s.total++;
+          if (cls.ok) s.cover++;
+        }
+      }
+      return [...map.values()];
+    }
+
+    function computeAnalysis() {
+      const incCount = rows.filter((r) => r.cls.ok).length;
+      if (!incCount) { analysis = null; $('analysis').textContent = 'No hay partidos en la rueda con estos datos.'; return; }
+      const tags = tally((ev) => (ev.tags || []).map((t) => ({ slug: t.slug || t.label, id: t.id })));
+      const series = tally((ev) => {
+        const list = Array.isArray(ev.series) ? ev.series.slice() : (ev.series ? [ev.series] : []);
+        if (ev.seriesSlug) list.push({ slug: ev.seriesSlug });
+        return list.map((s) => ({ slug: s.slug || s.title, id: s.id }));
+      });
+      const full = (list) => list.filter((s) => s.cover === incCount).sort((a, b) => a.total - b.total);
+      const fullTags = full(tags);
+      const fullSeries = full(series);
+      const best = fullTags[0] || null;
+      analysis = { incCount, tags, series, fullTags, fullSeries, best, liveTest: null };
+      renderAnalysis();
+    }
+
+    function covLine(s, incCount, kind) {
+      const eff = Math.round((s.cover / s.total) * 100);
+      return '<span class="chip">' + kind + ' <b>' + esc(s.slug) + '</b> — '
+        + s.cover + '/' + incCount + ' partidos · ' + s.total + ' eventos · eficiencia <b>' + eff + '%</b></span>';
+    }
+
+    function renderAnalysis() {
+      if (!analysis) return;
+      const { incCount, tags, fullTags, fullSeries, best } = analysis;
+      let html = '';
+      if (fullTags.length || fullSeries.length) {
+        html += '<div class="chips">'
+          + fullTags.slice(0, 8).map((s) => covLine(s, incCount, 'tag')).join('')
+          + fullSeries.slice(0, 4).map((s) => covLine(s, incCount, 'serie')).join('')
+          + '</div>';
+      }
+      if (best) {
+        const eff = Math.round((best.cover / best.total) * 100);
+        html += '<p style="font-size:0.85rem">✅ Recomendado: consultar solo <b>tag ' + esc(best.slug)
+          + '</b> (id ' + esc(best.id || '?') + ') <b>sin</b> <code>related_tags</code> → '
+          + best.total + ' eventos en vez de ' + rows.length + ' (' + eff + '% útil). '
+          + 'En <code>app.js</code>: <code>worldCupTagSlugs: [\'' + esc(best.slug) + '\']</code> y <code>relatedTags: false</code>.</p>';
+      } else {
+        const top = tags.slice().sort((a, b) => b.cover - a.cover || a.total - b.total).slice(0, 6);
+        html += '<p style="font-size:0.85rem">⚠️ Ningún tag/serie cubre por sí solo los ' + incCount
+          + ' partidos. Los que más cubren:</p><div class="chips">'
+          + top.map((s) => covLine(s, incCount, 'tag')).join('') + '</div>'
+          + '<p class="hint">Habría que combinar 2 tags o mantener la consulta actual.</p>';
+      }
+      if (analysis.liveTest) {
+        const t = analysis.liveTest;
+        html += '<p style="font-size:0.85rem">🧪 Prueba en vivo (tag ' + esc(t.slug) + ', sin related_tags): '
+          + t.events + ' eventos → <b>' + t.matches + '/' + incCount + '</b> partidos en ' + t.ms + 'ms — '
+          + (t.matches === incCount ? '<b style="color:var(--green)">cobertura completa ✓</b>'
+                                    : '<b style="color:var(--red)">faltan ' + (incCount - t.matches) + ' ✗</b>')
+          + '</p>';
+      }
+      $('analysis').innerHTML = html;
+    }
+
+    async function testBest() {
+      if (!analysis || !analysis.best) { $('teststatus').textContent = 'No hay recomendación que probar.'; return; }
+      const slug = analysis.best.slug;
+      $('teststatus').textContent = 'Probando tag ' + slug + ' sin related_tags…';
+      const t0 = performance.now();
+      try {
+        const id = analysis.best.id || await resolveTag(slug);
+        if (!id) throw new Error('no se pudo resolver el tag ' + slug);
+        const events = []; const seen = new Set();
+        for (let offset = 0; offset < MAX_PER_TAG; offset += PAGE) {
+          const qs = new URLSearchParams({
+            closed: 'false', limit: String(PAGE), offset: String(offset),
+            order: 'endDate', ascending: 'true', tag_id: String(id),
+          });
+          const page = await api('/events?' + qs.toString());
+          if (!Array.isArray(page) || !page.length) break;
+          for (const ev of page) { if (!seen.has(ev.id)) { seen.add(ev.id); events.push(ev); } }
+          if (page.length < PAGE) break;
+        }
+        const matches = events.filter((ev) => classify(ev).ok).length;
+        analysis.liveTest = { slug, events: events.length, matches, ms: Math.round(performance.now() - t0) };
+        renderAnalysis();
+        $('teststatus').textContent = '';
+      } catch (e) { $('teststatus').textContent = 'Error: ' + e.message; }
+    }
+
+    function buildAnalysisDiag() {
+      if (!analysis) return 'Sin análisis — carga el inventario primero.';
+      const compact = (list) => list
+        .slice().sort((a, b) => b.cover - a.cover || a.total - b.total).slice(0, 15)
+        .map((s) => ({ slug: s.slug, id: s.id, cubre: s.cover + '/' + analysis.incCount, eventos: s.total }));
+      return JSON.stringify({
+        nota: 'Análisis de filtro óptimo (explorer v2)',
+        fecha: new Date().toISOString(),
+        eventosTotales: rows.length,
+        partidosRueda: analysis.incCount,
+        tagsQueCubrenTodo: analysis.fullTags.map((s) => ({ slug: s.slug, id: s.id, eventos: s.total })),
+        seriesQueCubrenTodo: analysis.fullSeries.map((s) => ({ slug: s.slug, id: s.id, eventos: s.total })),
+        topTags: compact(analysis.tags),
+        pruebaEnVivo: analysis.liveTest,
+      }, null, 2);
     }
 
     function when(ev) {
@@ -411,6 +546,8 @@
       download('polymarket-mundial.json', JSON.stringify(visible.map(rowOut), null, 2), 'application/json');
     });
     $('copydiag').addEventListener('click', () => copyText(buildDiag(), '¡Copiado! Pégalo en el chat.'));
+    $('testbest').addEventListener('click', testBest);
+    $('copyanalysis').addEventListener('click', () => copyText(buildAnalysisDiag(), 'Análisis copiado. Pégalo en el chat.'));
     $('geninc').addEventListener('click', () => copyText(snippet('includeSlugs'), 'Snippet includeSlugs copiado.'));
     $('genexc').addEventListener('click', () => copyText(snippet('excludeSlugs'), 'Snippet excludeSlugs copiado.'));
     $('inspect').addEventListener('click', inspectEvent);

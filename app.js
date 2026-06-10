@@ -20,8 +20,13 @@ const CONFIG = {
   // Deploy proxy/worker.js to Cloudflare and paste its URL here (no trailing
   // slash). Leave '' to disable.
   proxyBase: 'https://wc-proxy.zcv25kyj7b.workers.dev',
-  // Candidate World Cup tag slugs (tried in order).
+  // Candidate World Cup tag slugs (tried in order). The "filtro óptimo"
+  // analysis in explorer.html tells which single tag covers every match —
+  // once confirmed, narrow this list and set relatedTags to false.
   worldCupTagSlugs: ['world-cup', '2026-fifa-world-cup', 'fifa-world-cup'],
+  // Broaden tag queries to related tags. Costs many extra events; only
+  // needed if no single tag carries all the match events.
+  relatedTags: true,
   // Fallback keywords to recognize the World Cup in tags/title/slug.
   worldCupKeywords: ['world cup', 'fifa world cup', 'mundial', 'wc 2026'],
   // Pagination: Gamma caps page sizes, so events are fetched in pages of
@@ -267,7 +272,7 @@ async function fetchEventsByTag(tagId) {
       offset: String(offset),
       order: 'endDate',
       ascending: 'true',
-      related_tags: 'true',
+      related_tags: CONFIG.relatedTags ? 'true' : 'false',
       tag_id: tagId,
     });
     const page = await gammaGet(`/events?${qs.toString()}`);
