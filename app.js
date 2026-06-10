@@ -21,11 +21,12 @@ const CONFIG = {
   // slash). Leave '' to disable.
   proxyBase: 'https://wc-proxy.zcv25kyj7b.workers.dev',
   // Source-side filter of choice: the Gamma series that groups the World
-  // Cup game events (the 'fifwc' family). When set, events are fetched with
-  // /events?series_id=… — the cheapest, most precise query — and the tag
-  // queries below are only a fallback. Find/verify the id with the
-  // "Buscar series_id" probe in explorer.html. '' disables it.
-  seriesId: '',
+  // Cup game events. Verified live with explorer.html: series 11433
+  // ("FIFA World Cup", ticker soccer-fifwc) covers every match — including
+  // one the World Cup tags miss — in a single query family. Events load
+  // with /events?series_id=…; the tag queries below are only a fallback.
+  // '' disables it (re-verify with the "Buscar series_id" probe).
+  seriesId: '11433',
   // Candidate World Cup tag slugs (tried in order). The "filtro óptimo"
   // analysis in explorer.html tells which single tag covers every match —
   // once confirmed, narrow this list and set relatedTags to false.

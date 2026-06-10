@@ -391,6 +391,9 @@
               + ' · ajenos: <b style="color:' + (t.foreign ? 'var(--red)' : 'var(--green)') + '">' + t.foreign + '</b>.'
               + (t.covered === incCount && !t.foreign
                   ? ' <b style="color:var(--green)">Este es el filtro de origen perfecto</b> — en <code>app.js</code>: <code>seriesId: \'' + esc(p.id) + '\'</code>.'
+                  : '')
+              + (t.foreignSample && t.foreignSample.length
+                  ? '<br><span class="hint">ajenos (¿partidos sin tags del Mundial?): ' + t.foreignSample.map(esc).join(' · ') + '</span>'
                   : '');
           }
           html += '</p>';
