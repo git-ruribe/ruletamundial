@@ -797,6 +797,11 @@ function announceWinner() {
 function hideResult() {
   reserve(el.result, false);
   el.result.classList.remove('is-pop', 'is-upset', 'is-huge');
+  // Clear the flag explicitly: its inline `visibility: visible` (set when a
+  // winner is announced) would otherwise override the container's inherited
+  // `visibility: hidden` and keep the previous winner's flag on screen.
+  el.resultFlag.removeAttribute('src');
+  el.resultFlag.style.visibility = 'hidden';
 }
 
 /* ----------------------------- CONFETTI ---------------------------------- */

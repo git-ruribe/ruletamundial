@@ -363,7 +363,7 @@ html, body {
 .disclaimer { opacity: 0.7; }
 
 /* ---------------------------- Visitor stats ------------------------------ */
-/* Floating (i) button — only on small screens. Intentionally discreet. */
+/* Floating (i) button — all screen sizes. Intentionally discreet. */
 .stats-fab {
   position: fixed;
   right: 10px;
@@ -473,23 +473,23 @@ html, body {
 
 .stats-privacy a { color: var(--team1); }
 
-/* Desktop: dock to the side, always visible — no FAB, backdrop or close. */
+/* Desktop: same discreet FAB as mobile, but the card opens docked to the
+   bottom-right corner (next to the button) instead of as a centered modal.
+   It stays hidden (visibility, not display, so the counter image still
+   loads and counts the visit) until the FAB toggles .is-open. */
 @media (min-width: 1200px) {
-  .stats-fab,
-  .stats-backdrop { display: none !important; }
-  .stats-card__close { display: none; }
+  /* Click-away close still works, but without dimming the whole screen. */
+  .stats-backdrop { background: transparent; }
   .stats-card {
     left: auto;
     right: 16px;
-    top: 50%;
-    transform: translateY(-50%);
+    top: auto;
+    bottom: 46px;
+    transform: translateY(8px);
     width: 230px;
     max-height: 86dvh;
-    visibility: visible;
-    opacity: 1;
-    pointer-events: auto;
   }
-  .stats-card.is-open { transform: translateY(-50%); }
+  .stats-card.is-open { transform: translateY(0); }
 }
 
 /* ------------------------- Educational modal ----------------------------- */
