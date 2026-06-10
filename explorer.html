@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow" />
-  <title>Polymarket Explorer (temp tool)</title>
+  <title>Inventario Polymarket — Mundial (herramienta interna)</title>
   <style>
     :root {
       --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --text: #e6edf3;
@@ -18,10 +18,11 @@
       padding: 18px; line-height: 1.45;
     }
     h1 { font-size: 1.3rem; margin: 0 0 4px; }
+    h3 { margin: 18px 0 8px; }
     .sub { color: var(--muted); font-size: 0.85rem; margin: 0 0 16px; }
     .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
     label { font-size: 0.78rem; color: var(--muted); }
-    input[type="text"], input[type="number"] {
+    input[type="text"], input[type="number"], select {
       background: var(--panel2); color: var(--text); border: 1px solid var(--border);
       border-radius: 8px; padding: 8px 10px; font-size: 0.9rem;
     }
@@ -36,339 +37,386 @@
     .status { font-size: 0.84rem; color: var(--muted); min-height: 1.2em; }
     .status.err { color: var(--red); }
     .status.ok { color: var(--green); }
-    details { border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px; background: var(--panel); }
-    summary { cursor: pointer; padding: 10px 12px; font-weight: 600; }
-    summary .meta { color: var(--muted); font-weight: 400; font-size: 0.82rem; }
-    .mkt { border-top: 1px solid var(--border); padding: 8px 12px; font-size: 0.84rem; }
-    .mkt b { color: var(--blue); }
-    .kv { color: var(--muted); }
-    .tag { display: inline-block; background: var(--panel2); border: 1px solid var(--border); border-radius: 6px; padding: 1px 6px; font-size: 0.72rem; margin: 2px 4px 2px 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+    .chip { background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; font-size: 0.76rem; color: var(--muted); }
+    .chip b { color: var(--text); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th, td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--bg); }
+    tr.in td:first-child { border-left: 3px solid var(--green); }
+    tr.out td:first-child { border-left: 3px solid var(--red); }
+    td.slug, td.when { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+    td.reason { color: var(--red); }
+    tr.in td.reason { color: var(--green); }
+    .tablewrap { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
     pre { background: #06090f; border: 1px solid var(--border); border-radius: 10px; padding: 12px; overflow: auto; font-size: 0.78rem; max-height: 360px; }
-    textarea { width: 100%; height: 220px; background: #06090f; color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.76rem; }
-    .pills button { font-size: 0.8rem; padding: 6px 10px; }
+    textarea { width: 100%; height: 160px; background: #06090f; color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.76rem; }
     .hint { font-size: 0.76rem; color: var(--muted); }
-    .outs { font-family: ui-monospace, monospace; }
   </style>
 </head>
 <body>
-  <h1>🔎 Polymarket Explorer <span class="sub">— temporary tool</span></h1>
-  <p class="sub">Runs in your browser against <code>gamma-api.polymarket.com</code>. Explore the real data, then hit
-    <strong>“Copy diagnostics for Claude”</strong> and paste the result back in chat.</p>
+  <h1>🔎 Inventario Polymarket — Mundial <span class="sub">— herramienta interna</span></h1>
+  <p class="sub">Corre en tu navegador contra <code>gamma-api.polymarket.com</code> (con respaldo vía proxy).
+    Trae <strong>TODOS</strong> los eventos de los tags del Mundial con paginación completa, clasifica cada uno con la
+    <strong>misma lógica exacta de la rueda</strong> (app.js: <code>teams</code> + mercados <code>moneyline</code>) y te dice
+    por qué entra o por qué queda fuera. Desde aquí exportas CSV/JSON y generas los filtros para <code>app.js</code>.</p>
 
+  <!-- ───────────────────────── 1 · CARGA ───────────────────────── -->
   <div class="card">
     <div class="row">
-      <label>World Cup tag slug</label>
-      <input id="slug" type="text" value="world-cup" />
-      <label>limit</label>
-      <input id="limit" type="number" value="200" style="width:90px" />
-      <button class="primary" id="load">Load matches</button>
-      <button id="wheelq" title="Run the exact query the wheel uses">🎡 Replicate WHEEL query</button>
-    </div>
-    <div class="row">
-      <label>sort by</label>
-      <select id="order">
-        <option value="endDate">endDate (resolves soonest)</option>
-        <option value="startDate">startDate</option>
-        <option value="volume24hr">volume24hr</option>
-        <option value="liquidity">liquidity</option>
-      </select>
-      <label><input id="asc" type="checkbox" checked /> ascending</label>
-      <label><input id="onlyvs" type="checkbox" /> only “A vs B”</label>
-      <label><input id="hideprops" type="checkbox" /> hide props (H2H / goals / winner / group…)</label>
-    </div>
-    <div class="row pills">
-      <span class="hint">Quick slugs:</span>
-      <button data-slug="world-cup">world-cup</button>
-      <button data-slug="2026-fifa-world-cup">2026-fifa-world-cup</button>
-      <button data-slug="fifa-world-cup">fifa-world-cup</button>
-      <button data-slug="soccer">soccer</button>
+      <label>Tags (los mismos de la app)</label>
+      <input id="slugs" type="text" class="grow" value="world-cup, 2026-fifa-world-cup, fifa-world-cup" />
+      <button class="primary" id="load">⟳ Cargar TODO (paginado)</button>
     </div>
     <div id="status" class="status"></div>
   </div>
 
+  <!-- ───────────────────────── 2 · RESUMEN + FILTROS DE VISTA ───── -->
+  <div class="card">
+    <div id="counters" class="chips"></div>
+    <div id="reasons" class="chips"></div>
+    <div class="row">
+      <label>ver</label>
+      <select id="view">
+        <option value="all">todos</option>
+        <option value="in">solo los que ENTRAN a la rueda</option>
+        <option value="out">solo EXCLUIDOS</option>
+      </select>
+      <label>buscar</label>
+      <input id="q" type="text" placeholder="título o slug…" />
+      <label><input id="onlyvs" type="checkbox" /> solo título “A vs B”</label>
+      <label><input id="onlyfuture" type="checkbox" /> solo futuros</label>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── 3 · EXPORTAR / FILTROS APP ───────── -->
   <div class="card">
     <div class="row">
-      <label>Inspect one event (slug or polymarket.com/event/… URL)</label>
-      <input id="evslug" type="text" class="grow" placeholder="e.g. mexico-vs-canada or full URL" />
-      <button id="inspect">Inspect</button>
+      <button id="dlcsv">⬇️ Descargar CSV (filas visibles)</button>
+      <button id="dljson">⬇️ Descargar JSON (filas visibles)</button>
+      <button class="primary" id="copydiag">📋 Copiar resumen compacto para Claude</button>
+      <span id="copystatus" class="hint"></span>
     </div>
     <div class="row">
-      <label>Raw query</label>
-      <input id="raw" type="text" class="grow" placeholder="/events?closed=false&limit=5&order=volume24hr&ascending=false" />
-      <button id="runraw">Run raw</button>
+      <button id="selvis">☑ Seleccionar visibles</button>
+      <button id="selnone">☐ Limpiar selección</button>
+      <button id="geninc">Generar <code>includeSlugs</code> de la selección</button>
+      <button id="genexc">Generar <code>excludeSlugs</code> de la selección</button>
+      <span id="selcount" class="hint"></span>
     </div>
-    <div class="hint">Raw runs against the Gamma base URL. Result shows below in “Raw JSON”.</div>
+    <p class="hint">El snippet generado se pega tal cual en <code>CONFIG.filters</code> de <code>app.js</code>:
+      con <code>includeSlugs</code> la rueda muestra <em>solo</em> esos partidos; con <code>excludeSlugs</code> los descarta.</p>
+    <textarea id="diag" readonly placeholder="Aquí aparece el resumen / snippet…"></textarea>
   </div>
 
-  <div class="row">
-    <button class="primary" id="copydiag">📋 Copy diagnostics for Claude</button>
-    <button id="copyraw">📋 Copy FULL raw events (untrimmed)</button>
-    <button id="copymatch">📋 Copy raw MATCH events only (“vs”)</button>
-    <label>events</label>
-    <input id="rawn" type="number" value="4" style="width:70px" />
-    <span id="copystatus" class="hint"></span>
+  <!-- ───────────────────────── 4 · TABLA ─────────────────────────── -->
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr>
+          <th></th><th>Rueda</th><th>Inicio (local)</th><th>Título</th>
+          <th>ML abiertos/total</th><th>Motivo / estado</th><th>slug</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"><tr><td colspan="7" class="hint">Pulsa “Cargar TODO”.</td></tr></tbody>
+    </table>
   </div>
-  <p class="hint">“FULL raw” copies every field of the first N loaded events (no trimming) — use it to spot a structural field that identifies the 1-X-2 result market.</p>
-  <textarea id="diag" readonly placeholder="Diagnostics summary will appear here…"></textarea>
 
-  <h3>Summary</h3>
-  <div id="summary"></div>
+  <!-- ───────────────────────── 5 · INSPECCIÓN PUNTUAL ────────────── -->
+  <div class="card" style="margin-top:16px">
+    <div class="row">
+      <label>Inspeccionar un evento (slug o URL polymarket.com/event/…)</label>
+      <input id="evslug" type="text" class="grow" placeholder="p. ej. mexico-vs-canada o URL completa" />
+      <button id="inspect">Inspeccionar</button>
+    </div>
+    <div class="row">
+      <label>Query cruda</label>
+      <input id="raw" type="text" class="grow" placeholder="/events?closed=false&limit=5&order=volume24hr&ascending=false" />
+      <button id="runraw">Ejecutar</button>
+    </div>
+  </div>
 
-  <h3>Raw JSON <span class="hint">(first response)</span></h3>
+  <h3>JSON crudo <span class="hint">(de la inspección / query cruda)</span></h3>
   <pre id="raw-out">—</pre>
 
   <script>
+    'use strict';
     const GAMMA = 'https://gamma-api.polymarket.com';
+    const PROXY = 'https://wc-proxy.zcv25kyj7b.workers.dev'; // mismo proxy de la app
+    const PAGE = 100;          // tamaño de página (la API trunca límites grandes)
+    const MAX_PER_TAG = 2000;  // tope de seguridad por tag
     const MATCH_VS = /\s+v(?:s)?\.?\s+/i;
-    // Player props / outrights that are NOT team match results.
-    const PROP_RE = /\b(h2h|goals?|contributions?|to score|scorer|winner|group|golden|mvp|to advance|advance|qualify|to reach|assists?|clean sheet|booking|cards?)\b/i;
+    const YES_RE = /^\s*(yes|s[ií])\s*$/i; // mismo regex que app.js
     const $ = (id) => document.getElementById(id);
 
-    let lastEvents = [];
+    let rows = [];     // [{ev, cls}] — todo lo cargado
+    let visible = [];  // subconjunto tras filtros de vista
+    const selected = new Set(); // slugs seleccionados
 
     function setStatus(msg, kind='') { const s=$('status'); s.textContent=msg||''; s.className='status'+(kind?' '+kind:''); }
-
-    async function getJSON(url) {
-      const res = await fetch(url, { headers: { accept: 'application/json' } });
-      const text = await res.text();
-      if (!res.ok) throw new Error('HTTP ' + res.status + ' — ' + text.slice(0,200));
-      try { return JSON.parse(text); } catch { return text; }
-    }
-
+    function esc(s){ const d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
     function parseList(v) {
       if (Array.isArray(v)) return v;
       if (typeof v === 'string') { try { const p = JSON.parse(v); return Array.isArray(p)?p:[]; } catch { return []; } }
       return [];
     }
 
+    /* ------------- red: directo a Gamma con respaldo por proxy ------------- */
+    let base = GAMMA;
+    async function getJSON(url) {
+      const res = await fetch(url, { headers: { accept: 'application/json' } });
+      const text = await res.text();
+      if (!res.ok) throw new Error('HTTP ' + res.status + ' — ' + text.slice(0,200));
+      try { return JSON.parse(text); } catch { return text; }
+    }
+    async function api(path) {
+      try { return await getJSON(base + path); }
+      catch (e) {
+        const other = base === GAMMA ? PROXY : GAMMA;
+        if (!other) throw e;
+        const data = await getJSON(other + path);
+        base = other;
+        return data;
+      }
+    }
     async function resolveTag(slug) {
-      try { const t = await getJSON(GAMMA + '/tags/slug/' + encodeURIComponent(slug)); return t && t.id ? String(t.id) : null; }
+      try { const t = await api('/tags/slug/' + encodeURIComponent(slug)); return t && t.id ? String(t.id) : null; }
       catch { return null; }
     }
 
-    async function loadMatches() {
-      const slug = $('slug').value.trim();
-      const limit = $('limit').value.trim() || '200';
-      const onlyVs = $('onlyvs').checked;
-      const hideProps = $('hideprops').checked;
-      const order = $('order').value;
-      const ascending = $('asc').checked ? 'true' : 'false';
-      // Query the same tags the wheel uses (team matches live under
-      // 2026-fifa-world-cup / fifa-world-cup, NOT the legacy world-cup tag).
-      const slugs = [...new Set([slug, ...WHEEL.tagSlugs].filter(Boolean))];
-      setStatus('Resolving tags: ' + slugs.join(', ') + '…');
-      const t0 = performance.now();
+    /* --------- clasificación: réplica EXACTA de eventToMatch (app.js) ------ */
+    // La rueda exige: ev.teams con ≥2 equipos, y ≥2 mercados con
+    // sportsMarketType === 'moneyline' activos, no cerrados y con groupItemTitle.
+    function classify(ev) {
+      const teams = Array.isArray(ev.teams) ? ev.teams : [];
+      const markets = ev.markets || [];
+      const ml = markets.filter((m) => m && m.sportsMarketType === 'moneyline');
+      const open = ml.filter((m) => m.active !== false && m.closed !== true);
+      const usable = open.filter((m) => {
+        const outs = parseList(m.outcomes);
+        return (m.groupItemTitle || '').trim() && outs.some((o) => YES_RE.test(o));
+      });
+      let ok = false, reason = '';
+      if (teams.length < 2)        reason = 'sin `teams` — no es evento de partido';
+      else if (!markets.length)    reason = 'evento sin mercados';
+      else if (!ml.length)         reason = 'sin mercado moneyline (1X2)';
+      else if (open.length < 2)    reason = 'moneyline inactivo/cerrado (' + open.length + '/' + ml.length + ' abiertos)';
+      else if (usable.length < 2)  reason = 'moneyline sin groupItemTitle u outcome “Yes”';
+      else { ok = true; reason = 'entra a la rueda ✓'; }
+      return { ok, reason, mlTotal: ml.length, mlOpen: open.length, teams: teams.length };
+    }
 
-      let events = [];
-      const usedUrls = [];
-      for (const s of slugs) {
-        const id = await resolveTag(s);
-        if (!id) continue;
-        const u = GAMMA + '/events?' + new URLSearchParams({ closed:'false', limit, order, ascending, related_tags:'true', tag_id: id });
-        usedUrls.push(u);
-        try { const e = await getJSON(u); if (Array.isArray(e)) events.push(...e); } catch (err) {}
+    /* ------------------- carga paginada completa por tags ------------------ */
+    async function loadAll() {
+      const slugs = $('slugs').value.split(',').map((s) => s.trim()).filter(Boolean);
+      setStatus('Resolviendo tags: ' + slugs.join(', ') + '…');
+      const ids = [];
+      for (const s of slugs) { const id = await resolveTag(s); if (id && !ids.includes(id)) ids.push(id); }
+      if (!ids.length) { setStatus('No se resolvió ningún tag.', 'err'); return; }
+
+      const events = [];
+      const seen = new Set();
+      for (const id of ids) {
+        for (let offset = 0; offset < MAX_PER_TAG; offset += PAGE) {
+          setStatus('tag ' + id + ' · offset ' + offset + ' · acumulados ' + events.length + '…');
+          const qs = new URLSearchParams({
+            closed: 'false', limit: String(PAGE), offset: String(offset),
+            order: 'endDate', ascending: 'true', related_tags: 'true', tag_id: id,
+          });
+          let page;
+          try { page = await api('/events?' + qs.toString()); }
+          catch (e) { setStatus('Error en tag ' + id + ' offset ' + offset + ': ' + e.message, 'err'); break; }
+          if (!Array.isArray(page) || !page.length) break;
+          for (const ev of page) { if (!seen.has(ev.id)) { seen.add(ev.id); events.push(ev); } }
+          if (page.length < PAGE) break; // página corta = no hay más
+        }
       }
-      // Dedupe by event id.
-      const seenIds = new Set();
-      events = events.filter(ev => { if (seenIds.has(ev.id)) return false; seenIds.add(ev.id); return true; });
 
-      if (hideProps) events = events.filter(ev => !PROP_RE.test(ev.title||''));
-      if (onlyVs) events = events.filter(ev => MATCH_VS.test(ev.title||''));
-
-      // The API's order param is not honored reliably here — sort client-side
-      // by endDate ascending so matches (early) surface above season-long groups.
-      events.sort((a,b)=>(Date.parse(a.endDate)||Infinity)-(Date.parse(b.endDate)||Infinity));
-
-      lastEvents = events;
-      const ms = Math.round(performance.now()-t0);
-      setStatus(slugs.length + ' tag(s) · ' + events.length + ' event(s) · ' + ms + 'ms', 'ok');
-      $('raw-out').textContent = JSON.stringify(events.slice(0,3), null, 2);
-      renderSummary(events);
-      buildDiagnostics(events);
+      rows = events.map((ev) => ({ ev, cls: classify(ev) }));
+      // Orden: por inicio (los partidos primero); sin fecha al final.
+      rows.sort((a, b) => when(a.ev) - when(b.ev));
+      setStatus(ids.length + ' tag(s) · ' + rows.length + ' evento(s) únicos · '
+        + rows.filter((r) => r.cls.ok).length + ' entran a la rueda', 'ok');
+      render();
     }
 
-    function marketRow(m) {
-      const outs = parseList(m.outcomes);
-      const prices = parseList(m.outcomePrices);
-      const pairs = outs.map((o,i)=> o + '=' + (prices[i]!==undefined?prices[i]:'?')).join(' , ');
-      return '<div class="mkt"><b>' + esc(m.question||m.groupItemTitle||'(market)') + '</b>'
-        + ' <span class="kv">groupItemTitle:</span> ' + esc(m.groupItemTitle||'—')
-        + ' <span class="kv">type:</span> ' + esc(m.sportsMarketType||m.marketType||'—')
-        + ' <span class="kv">active:</span> ' + (m.active!==false) + ' <span class="kv">closed:</span> ' + (m.closed===true)
-        + '<br><span class="kv">outcomes:</span> <span class="outs">' + esc(pairs||'—') + '</span></div>';
+    function when(ev) {
+      const t = Date.parse(ev.startTime || ev.startDate || ev.endDate || '');
+      return Number.isNaN(t) ? Infinity : t;
+    }
+    function whenStr(ev) {
+      const t = when(ev);
+      if (t === Infinity) return '—';
+      return new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     }
 
-    function renderSummary(events) {
-      const box = $('summary');
-      if (!events.length) { box.innerHTML = '<p class="hint">No events.</p>'; return; }
-      box.innerHTML = events.map(ev => {
-        const mk = (ev.markets||[]);
-        const tags = (ev.tags||[]).map(t=>'<span class="tag">'+esc(t.slug||t.label||'')+'</span>').join('');
-        return '<details><summary>' + esc(ev.title||'(no title)')
-          + ' <span class="meta">· ' + mk.length + ' market(s) · ends ' + esc(ev.endDate||'?') + ' · slug=' + esc(ev.slug||'?') + '</span></summary>'
-          + '<div class="mkt kv">tags: ' + (tags||'—') + '</div>'
-          + mk.map(marketRow).join('')
-          + '</details>';
-      }).join('');
+    /* ----------------------------- render ---------------------------------- */
+    function applyView() {
+      const view = $('view').value;
+      const q = $('q').value.trim().toLowerCase();
+      const onlyVs = $('onlyvs').checked;
+      const onlyFuture = $('onlyfuture').checked;
+      const now = Date.now();
+      visible = rows.filter(({ ev, cls }) => {
+        if (view === 'in' && !cls.ok) return false;
+        if (view === 'out' && cls.ok) return false;
+        if (onlyVs && !MATCH_VS.test(ev.title || '')) return false;
+        if (onlyFuture && when(ev) < now) return false;
+        if (q && !((ev.title || '').toLowerCase().includes(q) || (ev.slug || '').toLowerCase().includes(q))) return false;
+        return true;
+      });
     }
 
-    function trimMarket(m) {
+    function render() {
+      applyView();
+      const inAll = rows.filter((r) => r.cls.ok).length;
+      $('counters').innerHTML =
+        '<span class="chip">eventos: <b>' + rows.length + '</b></span>'
+        + '<span class="chip">entran a la rueda: <b>' + inAll + '</b></span>'
+        + '<span class="chip">excluidos: <b>' + (rows.length - inAll) + '</b></span>'
+        + '<span class="chip">visibles: <b>' + visible.length + '</b></span>';
+
+      // Desglose de motivos de exclusión.
+      const byReason = {};
+      for (const r of rows) if (!r.cls.ok) byReason[r.cls.reason] = (byReason[r.cls.reason] || 0) + 1;
+      $('reasons').innerHTML = Object.entries(byReason)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => '<span class="chip">' + esc(k) + ': <b>' + n + '</b></span>').join('');
+
+      $('tbody').innerHTML = visible.map(({ ev, cls }) => {
+        const checked = selected.has(ev.slug) ? ' checked' : '';
+        return '<tr class="' + (cls.ok ? 'in' : 'out') + '">'
+          + '<td><input type="checkbox" data-slug="' + esc(ev.slug) + '"' + checked + '></td>'
+          + '<td>' + (cls.ok ? '✅' : '—') + '</td>'
+          + '<td class="when">' + esc(whenStr(ev)) + '</td>'
+          + '<td>' + esc(ev.title || '(sin título)') + '</td>'
+          + '<td>' + cls.mlOpen + '/' + cls.mlTotal + '</td>'
+          + '<td class="reason">' + esc(cls.reason) + '</td>'
+          + '<td class="slug">' + esc(ev.slug || '') + '</td>'
+          + '</tr>';
+      }).join('') || '<tr><td colspan="7" class="hint">Nada que mostrar con estos filtros.</td></tr>';
+      updateSelCount();
+    }
+
+    function updateSelCount() { $('selcount').textContent = selected.size + ' seleccionado(s)'; }
+
+    /* ----------------------------- exportes --------------------------------- */
+    function rowOut({ ev, cls }) {
       return {
-        question: m.question, groupItemTitle: m.groupItemTitle,
-        sportsMarketType: m.sportsMarketType, marketType: m.marketType,
-        outcomes: parseList(m.outcomes), outcomePrices: parseList(m.outcomePrices),
-        active: m.active, closed: m.closed,
+        rueda: cls.ok ? 'SI' : 'NO',
+        motivo: cls.reason,
+        titulo: ev.title || '',
+        slug: ev.slug || '',
+        inicio: ev.startTime || ev.startDate || '',
+        fin: ev.endDate || '',
+        equipos: cls.teams,
+        ml_abiertos: cls.mlOpen,
+        ml_total: cls.mlTotal,
+        tags: (ev.tags || []).map((t) => t.slug || t.label).join('|'),
+        id: ev.id,
       };
     }
-    function trimEvent(ev) {
-      return {
-        title: ev.title, slug: ev.slug, startDate: ev.startDate, endDate: ev.endDate,
-        tags: (ev.tags||[]).map(t=>t.slug||t.label),
-        markets: (ev.markets||[]).map(trimMarket),
-      };
+    function toCSV(list) {
+      const cols = Object.keys(rowOut(list[0] || rows[0]));
+      const cell = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      return [cols.join(',')].concat(list.map((r) => cols.map((c) => cell(rowOut(r)[c])).join(','))).join('\n');
+    }
+    function download(name, text, type) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type }));
+      a.download = name;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    async function copyText(text, okMsg) {
+      $('diag').value = text;
+      try { await navigator.clipboard.writeText(text); $('copystatus').textContent = okMsg; }
+      catch { $('diag').select(); document.execCommand('copy'); $('copystatus').textContent = 'Seleccionado — Ctrl/Cmd+C.'; }
     }
 
-    function buildDiagnostics(events) {
-      const sample = events.slice(0, 14).map(trimEvent);
-      const out = {
-        note: 'Polymarket diagnostics for Claude',
-        totalEvents: events.length,
-        showing: sample.length,
-        sample,
+    // Resumen compacto: cabecera + una línea por evento. Pensado para pegarse
+    // en el chat sin reventar el contexto.
+    function buildDiag() {
+      const inAll = rows.filter((r) => r.cls.ok).length;
+      const byReason = {};
+      for (const r of rows) if (!r.cls.ok) byReason[r.cls.reason] = (byReason[r.cls.reason] || 0) + 1;
+      const head = {
+        nota: 'Inventario Polymarket (explorer v2) — clasificado con la lógica exacta de app.js',
+        fecha: new Date().toISOString(),
+        totalEventos: rows.length,
+        entranRueda: inAll,
+        motivosExclusion: byReason,
       };
-      $('diag').value = JSON.stringify(out, null, 2);
+      const lines = visible.map(({ ev, cls }) =>
+        [cls.ok ? 'SI' : 'NO', (ev.startTime || ev.startDate || '').slice(0, 16),
+         cls.mlOpen + '/' + cls.mlTotal, ev.slug, ev.title, cls.ok ? '' : cls.reason]
+          .join('\t'));
+      return JSON.stringify(head, null, 2) + '\n\nrueda\tinicio\tML\tslug\ttitulo\tmotivo\n' + lines.join('\n');
     }
 
+    function snippet(field) {
+      const list = [...selected].sort();
+      return 'filters: {\n'
+        + '  includeSlugs: ' + (field === 'includeSlugs' ? JSON.stringify(list, null, 2).replace(/\n/g, '\n  ') : '[]') + ',\n'
+        + '  excludeSlugs: ' + (field === 'excludeSlugs' ? JSON.stringify(list, null, 2).replace(/\n/g, '\n  ') : '[]') + ',\n'
+        + '},';
+    }
+
+    /* ------------------------ inspección puntual ---------------------------- */
     async function inspectEvent() {
       let v = $('evslug').value.trim();
       if (!v) return;
       const m = v.match(/event\/([^/?#]+)/); if (m) v = m[1];
-      setStatus('Fetching event slug “' + v + '”…');
+      setStatus('Buscando evento “' + v + '”…');
       try {
-        const ev = await getJSON(GAMMA + '/events?slug=' + encodeURIComponent(v));
+        const ev = await api('/events?slug=' + encodeURIComponent(v));
         const arr = Array.isArray(ev) ? ev : [ev];
-        lastEvents = arr;
         $('raw-out').textContent = JSON.stringify(arr, null, 2);
-        renderSummary(arr);
-        buildDiagnostics(arr);
-        setStatus(arr.length + ' event(s) for slug ' + v, 'ok');
+        if (arr.length && arr[0]) {
+          const cls = classify(arr[0]);
+          setStatus('“' + (arr[0].title || v) + '” → ' + cls.reason, cls.ok ? 'ok' : 'err');
+        } else setStatus('Sin resultados para ' + v, 'err');
       } catch (e) { setStatus('Error: ' + e.message, 'err'); }
     }
-
     async function runRaw() {
       let path = $('raw').value.trim();
       if (!path) return;
       if (!path.startsWith('/')) path = '/' + path;
-      setStatus('Running ' + path + '…');
+      setStatus('Ejecutando ' + path + '…');
       try {
-        const data = await getJSON(GAMMA + path);
+        const data = await api(path);
         $('raw-out').textContent = JSON.stringify(data, null, 2);
-        if (Array.isArray(data)) { lastEvents = data; renderSummary(data); buildDiagnostics(data); }
-        setStatus('OK · ' + (Array.isArray(data)?data.length+' item(s)':'object') + ' · ' + GAMMA + path, 'ok');
+        setStatus('OK · ' + (Array.isArray(data) ? data.length + ' item(s)' : 'objeto'), 'ok');
       } catch (e) { setStatus('Error: ' + e.message, 'err'); }
     }
 
-    function esc(s){ const d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
-
-    /* ---- Exact replication of the wheel (app.js) discovery + parsing ---- */
-    const WHEEL = {
-      tagSlugs: ['world-cup', '2026-fifa-world-cup', 'fifa-world-cup'],
-      limit: 300,
-      exclude: ['winner','group','top scorer','golden','player to','to advance','to win the','champion','golden boot','to qualify','to reach'],
-    };
-    const DRAW_RE = /\b(draw|tie|empate|x)\b/i;
-    const YES_RE = /^\s*(yes|s[ií])\s*$/i;
-    const NO_RE = /^\s*(no)\s*$/i;
-
-    function wheelExcluded(t){ t=(t||'').toLowerCase(); return WHEEL.exclude.some(k=>t.includes(k)); }
-    function wheelFromSingle(markets){
-      const cand = markets.map(m=>({outs:parseList(m.outcomes),prices:parseList(m.outcomePrices)}))
-        .filter(({outs})=>outs.length>=2&&outs.length<=3)
-        .filter(({outs})=>!outs.every(o=>YES_RE.test(o)||NO_RE.test(o)));
-      if(!cand.length) return null;
-      cand.sort((a,b)=>b.outs.length-a.outs.length);
-      const {outs,prices}=cand[0];
-      return outs.map((label,i)=>({label:String(label).trim(),prob:Number(prices[i])||0}));
-    }
-    function wheelFromGrouped(markets){
-      const s=[];
-      for(const m of markets){
-        const outs=parseList(m.outcomes), prices=parseList(m.outcomePrices);
-        if(outs.length!==2) continue;
-        const yi=outs.findIndex(o=>YES_RE.test(o)); if(yi===-1) continue;
-        const label=(m.groupItemTitle||m.question||'').trim(); if(!label) continue;
-        s.push({label,prob:Number(prices[yi])||0});
-      }
-      return s.length>=2?s:null;
-    }
-    function wheelOrder(sec){ const d=sec.filter(s=>DRAW_RE.test(s.label)), t=sec.filter(s=>!DRAW_RE.test(s.label)); return (d.length===1&&t.length===2)?[t[0],d[0],t[1]]:sec; }
-    function wheelNormalize(sec){ const tot=sec.reduce((a,x)=>a+(x.prob>0?x.prob:0),0); return sec.map(s=>({label:s.label,prob:tot>0?Math.max(s.prob,0)/tot:1/sec.length})); }
-    function wheelEventToMatch(ev){
-      const title=(ev.title||'').trim();
-      if(!MATCH_VS.test(title)||wheelExcluded(title)) return null;
-      const markets=(ev.markets||[]).filter(m=>m&&m.outcomes&&(m.active!==false)&&(m.closed!==true));
-      if(!markets.length) return null;
-      let sections=wheelFromSingle(markets)||wheelFromGrouped(markets);
-      if(!sections||sections.length<2) return null;
-      sections=wheelNormalize(wheelOrder(sections)).map(s=>({label:s.label,prob:+s.prob.toFixed(4)}));
-      return {title, endDate:ev.endDate||null, sections};
-    }
-
-    async function replicateWheel(){
-      setStatus('Replicating the wheel’s exact query…');
-      const queries=[]; let events=[]; const ids=[];
-      for(const slug of WHEEL.tagSlugs){ const id=await resolveTag(slug); if(id&&!ids.includes(id)) ids.push(id); }
-      for(const id of ids){
-        const url=GAMMA+'/events?'+new URLSearchParams({closed:'false',limit:String(WHEEL.limit),order:'endDate',ascending:'true',related_tags:'true',tag_id:id});
-        queries.push(url);
-        try{ const e=await getJSON(url); if(Array.isArray(e)) events.push(...e); }catch(err){ queries.push('ERROR: '+err.message); }
-      }
-      const seen=new Set(), uniq=[];
-      for(const ev of events){ if(seen.has(ev.id)) continue; seen.add(ev.id); uniq.push(ev); }
-      const matches=[];
-      for(const ev of uniq){ const m=wheelEventToMatch(ev); if(m) matches.push(m); }
-      matches.sort((a,b)=>(Date.parse(a.endDate)||Infinity)-(Date.parse(b.endDate)||Infinity));
-      lastEvents=uniq; renderSummary(uniq);
-      const diag={
-        note:'WHEEL replication — exact query + result the wheel produces',
-        tagSlugsTried:WHEEL.tagSlugs,
-        resolvedTagIds:ids,
-        queries,
-        totalEventsFetched:uniq.length,
-        wheelMatchCount:matches.length,
-        wheelMatches:matches.slice(0,25),
-      };
-      $('diag').value=JSON.stringify(diag,null,2);
-      $('raw-out').textContent=JSON.stringify(matches.slice(0,25),null,2);
-      setStatus(uniq.length+' events fetched → wheel would show '+matches.length+' "match(es)". Exact query is in the diagnostics box.', 'ok');
-    }
-
-    $('load').addEventListener('click', loadMatches);
-    $('wheelq').addEventListener('click', replicateWheel);
+    /* ------------------------------ eventos --------------------------------- */
+    $('load').addEventListener('click', loadAll);
+    ['view', 'q', 'onlyvs', 'onlyfuture'].forEach((id) =>
+      $(id).addEventListener('input', render));
+    $('tbody').addEventListener('change', (e) => {
+      const cb = e.target.closest('input[type="checkbox"]');
+      if (!cb) return;
+      if (cb.checked) selected.add(cb.dataset.slug); else selected.delete(cb.dataset.slug);
+      updateSelCount();
+    });
+    $('selvis').addEventListener('click', () => { visible.forEach((r) => selected.add(r.ev.slug)); render(); });
+    $('selnone').addEventListener('click', () => { selected.clear(); render(); });
+    $('dlcsv').addEventListener('click', () => {
+      if (!visible.length) return;
+      download('polymarket-mundial.csv', toCSV(visible), 'text/csv');
+    });
+    $('dljson').addEventListener('click', () => {
+      if (!visible.length) return;
+      download('polymarket-mundial.json', JSON.stringify(visible.map(rowOut), null, 2), 'application/json');
+    });
+    $('copydiag').addEventListener('click', () => copyText(buildDiag(), '¡Copiado! Pégalo en el chat.'));
+    $('geninc').addEventListener('click', () => copyText(snippet('includeSlugs'), 'Snippet includeSlugs copiado.'));
+    $('genexc').addEventListener('click', () => copyText(snippet('excludeSlugs'), 'Snippet excludeSlugs copiado.'));
     $('inspect').addEventListener('click', inspectEvent);
     $('runraw').addEventListener('click', runRaw);
-    document.querySelectorAll('.pills button').forEach(b => b.addEventListener('click', () => { $('slug').value = b.dataset.slug; loadMatches(); }));
-    async function copyText(text, okMsg) {
-      $('diag').value = text;
-      const t = $('diag'); t.select();
-      try { await navigator.clipboard.writeText(text); $('copystatus').textContent = okMsg; }
-      catch { document.execCommand('copy'); $('copystatus').textContent = 'Selected — press Ctrl/Cmd+C.'; }
-    }
-    $('copydiag').addEventListener('click', () => copyText($('diag').value, 'Copied! Paste it back to Claude.'));
-    $('copyraw').addEventListener('click', () => {
-      const n = Math.max(1, parseInt($('rawn').value, 10) || 4);
-      const full = JSON.stringify(lastEvents.slice(0, n), null, 2);
-      copyText(full, 'Copied FULL raw of ' + Math.min(n, lastEvents.length) + ' event(s).');
-    });
-    $('copymatch').addEventListener('click', () => {
-      const n = Math.max(1, parseInt($('rawn').value, 10) || 4);
-      const ms = lastEvents.filter(ev => MATCH_VS.test(ev.title || ''));
-      const full = JSON.stringify(ms.slice(0, n), null, 2);
-      copyText(full, 'Copied raw of ' + Math.min(n, ms.length) + ' match event(s) (of ' + ms.length + ').');
-    });
 
-    // Auto-run once on load.
-    loadMatches();
+    loadAll(); // auto-carga al abrir
   </script>
 </body>
 </html>

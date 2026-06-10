@@ -24,8 +24,17 @@ const CONFIG = {
   worldCupTagSlugs: ['world-cup', '2026-fifa-world-cup', 'fifa-world-cup'],
   // Fallback keywords to recognize the World Cup in tags/title/slug.
   worldCupKeywords: ['world cup', 'fifa world cup', 'mundial', 'wc 2026'],
-  // How many events to request per tag.
-  eventLimit: 300,
+  // Pagination: Gamma caps page sizes, so events are fetched in pages of
+  // `pageSize` until a short page arrives or `eventLimit` per tag is reached.
+  pageSize: 100,
+  eventLimit: 1000,
+  // Manual curation (slugs as shown by explorer.html). Both lists are optional:
+  //  - includeSlugs non-empty → ONLY those events are considered.
+  //  - excludeSlugs → those events are always dropped.
+  filters: {
+    includeSlugs: [],
+    excludeSlugs: [],
+  },
   // Public visitor widget (visits + countries). Uses Flag Counter — a static,
   // backend-less embed. Create a free counter at https://flagcounter.com and
   // paste your code (the part of the image URL after "/count2/") below, OR
@@ -246,27 +255,45 @@ async function resolveTagIds() {
   return [...new Set(ids)];
 }
 
+// Fetch ALL open events under a tag, page by page. A single request used to
+// cap the result (the API silently truncates large limits), which left later
+// matches out — e.g. only the first ~18 games of the tournament.
 async function fetchEventsByTag(tagId) {
-  const qs = new URLSearchParams({
-    closed: 'false',
-    limit: String(CONFIG.eventLimit),
-    order: 'endDate',
-    ascending: 'true',
-    related_tags: 'true',
-    tag_id: tagId,
-  });
-  return gammaGet(`/events?${qs.toString()}`);
+  const events = [];
+  for (let offset = 0; offset < CONFIG.eventLimit; offset += CONFIG.pageSize) {
+    const qs = new URLSearchParams({
+      closed: 'false',
+      limit: String(CONFIG.pageSize),
+      offset: String(offset),
+      order: 'endDate',
+      ascending: 'true',
+      related_tags: 'true',
+      tag_id: tagId,
+    });
+    const page = await gammaGet(`/events?${qs.toString()}`);
+    if (!Array.isArray(page) || !page.length) break;
+    events.push(...page);
+    if (page.length < CONFIG.pageSize) break; // short page = no more results
+  }
+  return events;
 }
 
-// Fallback: if no tag is found, fetch events and filter by keywords.
+// Fallback: if no tag is found, fetch events (paginated) and filter by keywords.
 async function fetchEventsFallback() {
-  const qs = new URLSearchParams({
-    closed: 'false',
-    limit: '500',
-    order: 'endDate',
-    ascending: 'true',
-  });
-  const events = await gammaGet(`/events?${qs.toString()}`);
+  const events = [];
+  for (let offset = 0; offset < CONFIG.eventLimit; offset += CONFIG.pageSize) {
+    const qs = new URLSearchParams({
+      closed: 'false',
+      limit: String(CONFIG.pageSize),
+      offset: String(offset),
+      order: 'endDate',
+      ascending: 'true',
+    });
+    const page = await gammaGet(`/events?${qs.toString()}`);
+    if (!Array.isArray(page) || !page.length) break;
+    events.push(...page);
+    if (page.length < CONFIG.pageSize) break;
+  }
   return events.filter((ev) => matchesWorldCup(ev));
 }
 
@@ -382,6 +409,12 @@ async function loadMatches() {
     reached = true;
   }
   if (!reached) throw new Error('NETWORK');
+
+  // Manual curation from CONFIG.filters (slugs come from explorer.html).
+  const include = new Set(CONFIG.filters.includeSlugs || []);
+  const exclude = new Set(CONFIG.filters.excludeSlugs || []);
+  if (include.size) events = events.filter((ev) => include.has(ev.slug));
+  if (exclude.size) events = events.filter((ev) => !exclude.has(ev.slug));
 
   // Dedupe by event id.
   const seen = new Set();
