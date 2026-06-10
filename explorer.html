@@ -275,9 +275,12 @@
       return [...map.values()];
     }
 
+    function tagSetOf(ev) { return new Set((ev.tags || []).map((t) => t.slug || t.label)); }
+
     function computeAnalysis() {
       const incCount = rows.filter((r) => r.cls.ok).length;
       if (!incCount) { analysis = null; $('analysis').textContent = 'No hay partidos en la rueda con estos datos.'; return; }
+      const incSlugs = new Set(rows.filter((r) => r.cls.ok).map((r) => r.ev.slug));
       const tags = tally((ev) => (ev.tags || []).map((t) => ({ slug: t.slug || t.label, id: t.id })));
       const series = tally((ev) => {
         const list = Array.isArray(ev.series) ? ev.series.slice() : (ev.series ? [ev.series] : []);
@@ -287,8 +290,47 @@
       const full = (list) => list.filter((s) => s.cover === incCount).sort((a, b) => a.total - b.total);
       const fullTags = full(tags);
       const fullSeries = full(series);
-      const best = fullTags[0] || null;
-      analysis = { incCount, tags, series, fullTags, fullSeries, best, liveTest: null };
+
+      // Combos: tag base (cubre 100%) + exclude_tag_id de tags que NO tocan
+      // ningún partido (cover=0) pero cargan muchos props/futuros. Greedy: en
+      // cada vuelta se excluye el tag que más eventos inútiles quita.
+      const tagMap = new Map(tags.map((s) => [s.slug, s]));
+      const combos = [];
+      for (const base of fullTags.slice(0, 6)) {
+        let pool = rows.filter((r) => !r.cls.ok && tagSetOf(r.ev).has(base.slug));
+        const excludes = [];
+        while (excludes.length < 3) {
+          const counts = new Map();
+          for (const r of pool) {
+            for (const s of tagSetOf(r.ev)) {
+              const t = tagMap.get(s);
+              if (!t || t.cover > 0 || s === base.slug) continue; // jamás excluir un tag que lleve algún partido
+              counts.set(s, (counts.get(s) || 0) + 1);
+            }
+          }
+          let bestE = null, bestN = 0;
+          for (const [s, n] of counts) if (n > bestN) { bestN = n; bestE = s; }
+          if (!bestE || bestN < 8) break; // ganancia marginal: no vale otra exclusión
+          excludes.push({ slug: bestE, id: tagMap.get(bestE).id, quita: bestN });
+          pool = pool.filter((r) => !tagSetOf(r.ev).has(bestE));
+        }
+        combos.push({ base, excludes, projected: incCount + pool.length });
+      }
+      combos.sort((a, b) => a.projected - b.projected);
+
+      // Prefijo del slug del evento (p.ej. los partidos del Mundial usan
+      // "fifwc-..."): discriminador client-side perfecto si cubre el 100%.
+      const prefixes = tally((ev) => {
+        const p = String(ev.slug || '').split('-')[0];
+        return p && p.length >= 3 ? [{ slug: p, id: null }] : [];
+      });
+      const fullPrefixes = full(prefixes);
+
+      analysis = {
+        incCount, incSlugs, tags, series, fullTags, fullSeries, combos,
+        fullPrefixes, bestPrefix: fullPrefixes[0] || null,
+        best: combos[0] || null, liveTest: null,
+      };
       renderAnalysis();
     }
 
@@ -300,33 +342,49 @@
 
     function renderAnalysis() {
       if (!analysis) return;
-      const { incCount, tags, fullTags, fullSeries, best } = analysis;
+      const { incCount, tags, fullTags, fullSeries, fullPrefixes, bestPrefix, best } = analysis;
       let html = '';
-      if (fullTags.length || fullSeries.length) {
+      if (fullTags.length || fullSeries.length || fullPrefixes.length) {
         html += '<div class="chips">'
-          + fullTags.slice(0, 8).map((s) => covLine(s, incCount, 'tag')).join('')
+          + fullPrefixes.slice(0, 3).map((s) => covLine(s, incCount, 'prefijo slug')).join('')
+          + fullTags.slice(0, 6).map((s) => covLine(s, incCount, 'tag')).join('')
           + fullSeries.slice(0, 4).map((s) => covLine(s, incCount, 'serie')).join('')
           + '</div>';
       }
       if (best) {
-        const eff = Math.round((best.cover / best.total) * 100);
-        html += '<p style="font-size:0.85rem">✅ Recomendado: consultar solo <b>tag ' + esc(best.slug)
-          + '</b> (id ' + esc(best.id || '?') + ') <b>sin</b> <code>related_tags</code> → '
-          + best.total + ' eventos en vez de ' + rows.length + ' (' + eff + '% útil). '
-          + 'En <code>app.js</code>: <code>worldCupTagSlugs: [\'' + esc(best.slug) + '\']</code> y <code>relatedTags: false</code>.</p>';
+        const exc = best.excludes.map((e) => esc(e.slug) + ' (id ' + esc(e.id || '?') + ', quita ' + e.quita + ')').join(', ');
+        html += '<p style="font-size:0.85rem">✅ Mejor consulta al servidor: <b>tag ' + esc(best.base.slug)
+          + '</b> (id ' + esc(best.base.id || '?') + ') sin <code>related_tags</code>'
+          + (best.excludes.length ? ' + <code>exclude_tag_id</code> de: ' + exc : '')
+          + ' → ~' + best.projected + ' eventos en vez de ' + rows.length + '.</p>';
+        if (best.base.slug === 'games' || best.base.slug === 'sports') {
+          html += '<p class="hint">⚠️ <b>' + esc(best.base.slug) + '</b> es un tag genérico de Polymarket: consultado en vivo puede '
+            + 'traer partidos de OTROS deportes/ligas que también pasarían el filtro estructural de la rueda. '
+            + 'La prueba en vivo de abajo cuenta esos “ajenos”.</p>';
+        }
       } else {
         const top = tags.slice().sort((a, b) => b.cover - a.cover || a.total - b.total).slice(0, 6);
-        html += '<p style="font-size:0.85rem">⚠️ Ningún tag/serie cubre por sí solo los ' + incCount
+        html += '<p style="font-size:0.85rem">⚠️ Ningún tag cubre por sí solo los ' + incCount
           + ' partidos. Los que más cubren:</p><div class="chips">'
-          + top.map((s) => covLine(s, incCount, 'tag')).join('') + '</div>'
-          + '<p class="hint">Habría que combinar 2 tags o mantener la consulta actual.</p>';
+          + top.map((s) => covLine(s, incCount, 'tag')).join('') + '</div>';
+      }
+      if (bestPrefix) {
+        html += '<p style="font-size:0.85rem">🎯 Precisión client-side: todos los partidos comparten el prefijo de slug '
+          + '<b>' + esc(bestPrefix.slug) + '-</b> (' + bestPrefix.cover + '/' + incCount + ', '
+          + bestPrefix.total + ' eventos lo llevan). En <code>app.js</code>: '
+          + '<code>filters.slugPrefixes: [\'' + esc(bestPrefix.slug) + '\']</code> garantiza que jamás entre nada ajeno, '
+          + 'venga del tag que venga.</p>';
       }
       if (analysis.liveTest) {
         const t = analysis.liveTest;
-        html += '<p style="font-size:0.85rem">🧪 Prueba en vivo (tag ' + esc(t.slug) + ', sin related_tags): '
-          + t.events + ' eventos → <b>' + t.matches + '/' + incCount + '</b> partidos en ' + t.ms + 'ms — '
-          + (t.matches === incCount ? '<b style="color:var(--green)">cobertura completa ✓</b>'
-                                    : '<b style="color:var(--red)">faltan ' + (incCount - t.matches) + ' ✗</b>')
+        html += '<p style="font-size:0.85rem">🧪 Prueba en vivo (' + esc(t.desc) + '): '
+          + t.events + ' eventos en ' + t.ms + 'ms → cubre <b>' + t.covered + '/' + incCount + '</b> partidos '
+          + (t.covered === incCount ? '<b style="color:var(--green)">✓</b>' : '<b style="color:var(--red)">(faltan ' + (incCount - t.covered) + ') ✗</b>')
+          + ' · ajenos que entrarían: <b style="color:' + (t.foreign ? 'var(--red)' : 'var(--green)') + '">' + t.foreign + '</b>'
+          + (t.foreign && t.foreignAfterPrefix != null
+              ? ' → con <code>slugPrefixes</code> quedarían <b style="color:' + (t.foreignAfterPrefix ? 'var(--red)' : 'var(--green)') + '">' + t.foreignAfterPrefix + '</b>'
+              : '')
+          + (t.foreignSample && t.foreignSample.length ? '<br><span class="hint">ajenos p.ej.: ' + t.foreignSample.map(esc).join(' · ') + '</span>' : '')
           + '</p>';
       }
       $('analysis').innerHTML = html;
@@ -334,25 +392,38 @@
 
     async function testBest() {
       if (!analysis || !analysis.best) { $('teststatus').textContent = 'No hay recomendación que probar.'; return; }
-      const slug = analysis.best.slug;
-      $('teststatus').textContent = 'Probando tag ' + slug + ' sin related_tags…';
+      const { base, excludes } = analysis.best;
+      const desc = 'tag ' + base.slug + (excludes.length ? ' − [' + excludes.map((e) => e.slug).join(', ') + ']' : '') + ', sin related_tags';
+      $('teststatus').textContent = 'Probando ' + desc + '…';
       const t0 = performance.now();
       try {
-        const id = analysis.best.id || await resolveTag(slug);
-        if (!id) throw new Error('no se pudo resolver el tag ' + slug);
+        const id = base.id || await resolveTag(base.slug);
+        if (!id) throw new Error('no se pudo resolver el tag ' + base.slug);
         const events = []; const seen = new Set();
         for (let offset = 0; offset < MAX_PER_TAG; offset += PAGE) {
           const qs = new URLSearchParams({
             closed: 'false', limit: String(PAGE), offset: String(offset),
             order: 'endDate', ascending: 'true', tag_id: String(id),
           });
+          for (const e of excludes) if (e.id) qs.append('exclude_tag_id', String(e.id));
           const page = await api('/events?' + qs.toString());
           if (!Array.isArray(page) || !page.length) break;
           for (const ev of page) { if (!seen.has(ev.id)) { seen.add(ev.id); events.push(ev); } }
           if (page.length < PAGE) break;
         }
-        const matches = events.filter((ev) => classify(ev).ok).length;
-        analysis.liveTest = { slug, events: events.length, matches, ms: Math.round(performance.now() - t0) };
+        const ok = events.filter((ev) => classify(ev).ok);
+        const covered = ok.filter((ev) => analysis.incSlugs.has(ev.slug)).length;
+        const foreignList = ok.filter((ev) => !analysis.incSlugs.has(ev.slug));
+        const pref = analysis.bestPrefix ? analysis.bestPrefix.slug + '-' : null;
+        analysis.liveTest = {
+          desc, events: events.length, covered,
+          foreign: foreignList.length,
+          foreignAfterPrefix: pref
+            ? foreignList.filter((ev) => String(ev.slug || '').startsWith(pref)).length
+            : null,
+          foreignSample: foreignList.slice(0, 8).map((ev) => ev.slug),
+          ms: Math.round(performance.now() - t0),
+        };
         renderAnalysis();
         $('teststatus').textContent = '';
       } catch (e) { $('teststatus').textContent = 'Error: ' + e.message; }
@@ -368,8 +439,14 @@
         fecha: new Date().toISOString(),
         eventosTotales: rows.length,
         partidosRueda: analysis.incCount,
+        prefijosSlugQueCubrenTodo: analysis.fullPrefixes.map((s) => ({ prefijo: s.slug, eventos: s.total })),
         tagsQueCubrenTodo: analysis.fullTags.map((s) => ({ slug: s.slug, id: s.id, eventos: s.total })),
         seriesQueCubrenTodo: analysis.fullSeries.map((s) => ({ slug: s.slug, id: s.id, eventos: s.total })),
+        mejoresCombos: analysis.combos.slice(0, 3).map((c) => ({
+          base: c.base.slug, baseId: c.base.id,
+          excluir: c.excludes.map((e) => ({ slug: e.slug, id: e.id, quita: e.quita })),
+          eventosProyectados: c.projected,
+        })),
         topTags: compact(analysis.tags),
         pruebaEnVivo: analysis.liveTest,
       }, null, 2);

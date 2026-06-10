@@ -27,16 +27,22 @@ const CONFIG = {
   // Broaden tag queries to related tags. Costs many extra events; only
   // needed if no single tag carries all the match events.
   relatedTags: true,
+  // Tags to exclude server-side (exclude_tag_id) — prop/futures tags that
+  // never carry a match. The explorer's combo analysis suggests these.
+  excludeTagSlugs: [],
   // Fallback keywords to recognize the World Cup in tags/title/slug.
   worldCupKeywords: ['world cup', 'fifa world cup', 'mundial', 'wc 2026'],
   // Pagination: Gamma caps page sizes, so events are fetched in pages of
   // `pageSize` until a short page arrives or `eventLimit` per tag is reached.
   pageSize: 100,
   eventLimit: 1000,
-  // Manual curation (slugs as shown by explorer.html). Both lists are optional:
-  //  - includeSlugs non-empty → ONLY those events are considered.
+  // Manual curation (slugs as shown by explorer.html). All lists optional:
+  //  - slugPrefixes non-empty → only events whose slug starts with one of
+  //    these prefixes are considered (WC match events all use 'fifwc-').
+  //  - includeSlugs non-empty → ONLY those exact events are considered.
   //  - excludeSlugs → those events are always dropped.
   filters: {
+    slugPrefixes: ['fifwc'],
     includeSlugs: [],
     excludeSlugs: [],
   },
@@ -247,11 +253,11 @@ function pct(p) {
 
 /* --------------------------- DATA LAYER ---------------------------------- */
 
-// Resolve the World Cup tag ids from their slugs (in parallel, so a blocked
-// network fails in one timeout window rather than several).
-async function resolveTagIds() {
+// Resolve tag ids from slugs (in parallel, so a blocked network fails in one
+// timeout window rather than several).
+async function resolveTagIds(slugs) {
   const results = await Promise.allSettled(
-    CONFIG.worldCupTagSlugs.map((slug) => gammaGet(`/tags/slug/${slug}`))
+    slugs.map((slug) => gammaGet(`/tags/slug/${slug}`))
   );
   const ids = [];
   for (const r of results) {
@@ -263,7 +269,7 @@ async function resolveTagIds() {
 // Fetch ALL open events under a tag, page by page. A single request used to
 // cap the result (the API silently truncates large limits), which left later
 // matches out — e.g. only the first ~18 games of the tournament.
-async function fetchEventsByTag(tagId) {
+async function fetchEventsByTag(tagId, excludeTagIds = []) {
   const events = [];
   for (let offset = 0; offset < CONFIG.eventLimit; offset += CONFIG.pageSize) {
     const qs = new URLSearchParams({
@@ -275,6 +281,7 @@ async function fetchEventsByTag(tagId) {
       related_tags: CONFIG.relatedTags ? 'true' : 'false',
       tag_id: tagId,
     });
+    for (const id of excludeTagIds) qs.append('exclude_tag_id', id);
     const page = await gammaGet(`/events?${qs.toString()}`);
     if (!Array.isArray(page) || !page.length) break;
     events.push(...page);
@@ -397,10 +404,13 @@ function isLive(match) {
 async function loadMatches() {
   let events = [];
   let reached = false; // did any request to Polymarket actually succeed?
-  const tagIds = await resolveTagIds();
+  const [tagIds, excludeIds] = await Promise.all([
+    resolveTagIds(CONFIG.worldCupTagSlugs),
+    CONFIG.excludeTagSlugs.length ? resolveTagIds(CONFIG.excludeTagSlugs) : [],
+  ]);
   if (tagIds.length) reached = true;
 
-  const fetched = await Promise.allSettled(tagIds.map((id) => fetchEventsByTag(id)));
+  const fetched = await Promise.allSettled(tagIds.map((id) => fetchEventsByTag(id, excludeIds)));
   for (const r of fetched) {
     if (r.status === 'fulfilled' && Array.isArray(r.value)) {
       events.push(...r.value);
@@ -416,8 +426,14 @@ async function loadMatches() {
   if (!reached) throw new Error('NETWORK');
 
   // Manual curation from CONFIG.filters (slugs come from explorer.html).
+  const prefixes = CONFIG.filters.slugPrefixes || [];
   const include = new Set(CONFIG.filters.includeSlugs || []);
   const exclude = new Set(CONFIG.filters.excludeSlugs || []);
+  if (prefixes.length) {
+    events = events.filter((ev) =>
+      prefixes.some((p) => String(ev.slug || '').startsWith(p))
+    );
+  }
   if (include.size) events = events.filter((ev) => include.has(ev.slug));
   if (exclude.size) events = events.filter((ev) => !exclude.has(ev.slug));
 
