@@ -498,6 +498,7 @@ async function loadMatches() {
 }
 
 // Footer line: when the odds were last fetched, in the viewer's local time.
+// Flashes briefly on each update so a live refresh is visibly a refresh.
 function renderUpdated() {
   if (!state.lastUpdated) { el.lastUpdated.textContent = ''; return; }
   const when = new Date(state.lastUpdated).toLocaleString([], {
@@ -505,6 +506,9 @@ function renderUpdated() {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
   el.lastUpdated.textContent = `Updated ${when}`;
+  el.lastUpdated.classList.remove('is-tick');
+  void el.lastUpdated.offsetWidth; // reflow so the animation re-triggers
+  el.lastUpdated.classList.add('is-tick');
 }
 
 /* ----------------------------- DROPDOWN ---------------------------------- */
@@ -1161,7 +1165,8 @@ async function refreshLive() {
   if (!state.matches.length) return;
   populateSelect();
   let idx = state.matches.findIndex((m) => m.id === prevId);
-  if (idx < 0) idx = 0;
+  const vanished = idx < 0; // selected match resolved/de-listed on Polymarket
+  if (vanished) idx = 0;
   el.select.value = String(idx);
   state.current = state.matches[idx];
   preloadLogos(state.current.sections);
@@ -1169,6 +1174,14 @@ async function refreshLive() {
   drawWheel();
   updateLiveBadge();
   updateWhyButton();
+  // Say what just happened — otherwise a live refresh is indistinguishable
+  // from a stale initial snapshot.
+  setStatus(
+    vanished
+      ? 'Your match closed on Polymarket — switched to the next one'
+      : `${state.matches.length} matches · live odds refreshed`,
+    vanished ? '' : 'ok'
+  );
 }
 
 function drawPlaceholder() {
