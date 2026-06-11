@@ -520,14 +520,20 @@ async function loadMatches() {
 }
 
 // Footer line: when the odds were last fetched, in the viewer's local time.
-// Flashes briefly on each update so a live refresh is visibly a refresh.
+// While the live stream is continuous it reads "Real Time" instead. Flashes
+// briefly on each change so a refresh is visibly a refresh.
 function renderUpdated() {
-  if (!state.lastUpdated) { el.lastUpdated.textContent = ''; return; }
-  const when = new Date(state.lastUpdated).toLocaleString([], {
-    month: 'short', day: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  });
-  el.lastUpdated.textContent = `Updated ${when}`;
+  const text = streamActive()
+    ? 'Updated Real Time'
+    : state.lastUpdated
+      ? `Updated ${new Date(state.lastUpdated).toLocaleString([], {
+          month: 'short', day: 'numeric',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+        })}`
+      : '';
+  if (el.lastUpdated.textContent === text) return; // no churn, no re-flash
+  el.lastUpdated.textContent = text;
+  if (!text) return;
   el.lastUpdated.classList.remove('is-tick');
   void el.lastUpdated.offsetWidth; // reflow so the animation re-triggers
   el.lastUpdated.classList.add('is-tick');
@@ -1192,8 +1198,19 @@ const stream = {
   reconnectTimer: null,
   keepaliveTimer: null,
   applyTimer: null,
-  statusAt: 0,
+  clockTimer: null, // 1s ticker for the streaming clock while connected
+  lastMsgAt: 0, // any inbound data (incl. PONG) — connection health signal
 };
+
+// "Continuous" stream: socket open AND something heard recently (our PINGs
+// are answered every 5s, so silence beyond 12s means the stream stalled).
+function streamActive() {
+  return !!(
+    stream.ws &&
+    stream.ws.readyState === WebSocket.OPEN &&
+    Date.now() - stream.lastMsgAt < 12000
+  );
+}
 
 function liveStreamTokens() {
   const tokens = [];
@@ -1245,6 +1262,8 @@ function openLiveStream(tokens) {
     stream.keepaliveTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.send('PING');
     }, 5000);
+    // Tick the streaming clock (status + footer) every second while live.
+    stream.clockTimer = setInterval(onStreamClockTick, 1000);
   };
   ws.onmessage = (e) => handleStreamMessage(e.data);
   ws.onclose = () => {
@@ -1261,6 +1280,8 @@ function openLiveStream(tokens) {
 function cleanupStreamTimers() {
   if (stream.keepaliveTimer) { clearInterval(stream.keepaliveTimer); stream.keepaliveTimer = null; }
   if (stream.applyTimer) { clearTimeout(stream.applyTimer); stream.applyTimer = null; }
+  if (stream.clockTimer) { clearInterval(stream.clockTimer); stream.clockTimer = null; }
+  renderUpdated(); // restore the date/time footer once streaming stops
 }
 
 function closeLiveStream() {
@@ -1302,6 +1323,7 @@ function priceEntry(token) {
 }
 
 function handleStreamMessage(data) {
+  stream.lastMsgAt = Date.now(); // any inbound traffic counts as a heartbeat
   if (typeof data !== 'string' || data === 'PONG' || data === 'PING') return;
   let parsed;
   try { parsed = JSON.parse(data); } catch { return; }
@@ -1380,20 +1402,22 @@ function applyStreamPrices() {
   }
 }
 
-// "🔴 streaming" status: favourite's move vs the last REST snapshot.
+// "🔴 streaming" status: a live clock, ticking every second while the stream
+// stays continuous (no favourite delta here — the wheel itself shows moves).
 function renderStreamStatus() {
   const m = state.current;
-  if (!m || !isLive(m)) return;
-  const now = Date.now();
-  if (now - stream.statusAt < 1500) return;
-  stream.statusAt = now;
-  const at = new Date(now).toLocaleTimeString([], {
+  if (!m || !isLive(m) || !streamActive()) return;
+  const at = new Date().toLocaleTimeString([], {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
-  const fave = m.sections.reduce((a, b) => (b.prob > a.prob ? b : a), m.sections[0]);
-  const base = (m.baseline || []).find((s) => s.label === fave.label);
-  const move = base ? ` · ${fave.label} ${fave.prob - base.prob >= 0 ? '+' : ''}${((fave.prob - base.prob) * 100).toFixed(1)}pp` : '';
-  setStatus(`${state.matches.length} matches · 🔴 streaming @ ${at}${move}`, 'ok');
+  setStatus(`${state.matches.length} matches · 🔴 streaming @ ${at}`, 'ok');
+}
+
+// 1s ticker while connected: advance the clock and keep the footer in
+// "Real Time" mode; if the stream stalls, both fall back automatically.
+function onStreamClockTick() {
+  renderStreamStatus();
+  renderUpdated();
 }
 
 // Re-fetch odds without disturbing the current spin/selection/rotation.
@@ -1435,12 +1459,17 @@ async function refreshLive() {
       faveMove = ` · ${fave.label} ${pp >= 0 ? '+' : ''}${pp.toFixed(1)}pp`;
     }
   }
-  setStatus(
-    vanished
-      ? 'Your match closed on Polymarket — switched to the next one'
-      : `${state.matches.length} matches · live odds refreshed @ ${at}${faveMove}`,
-    vanished ? '' : 'ok'
-  );
+  // While the stream is continuous, its 1s clock owns the status line — the
+  // REST reconciliation works silently. It only speaks when streaming is off
+  // (geo-blocked/stalled) or the selected match vanished.
+  if (vanished || !streamActive()) {
+    setStatus(
+      vanished
+        ? 'Your match closed on Polymarket — switched to the next one'
+        : `${state.matches.length} matches · live odds refreshed @ ${at}${faveMove}`,
+      vanished ? '' : 'ok'
+    );
+  }
   syncLiveStream(); // the fresh match list may have entered/left live windows
 }
 
