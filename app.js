@@ -622,8 +622,26 @@ function wireWhyModal() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeWhy(); });
 }
 
+// Default selection on load: a match being played right now if there is one,
+// otherwise the next one to kick off; never an ended/past one if avoidable.
+function defaultMatchIndex() {
+  const now = Date.now();
+  let live = -1;
+  let next = -1;
+  let nextAt = Infinity;
+  state.matches.forEach((m, i) => {
+    if (live < 0 && isLive(m)) live = i;
+    const s = m.startTime ? Date.parse(m.startTime) : NaN;
+    if (!Number.isNaN(s) && s >= now && s < nextAt) { next = i; nextAt = s; }
+  });
+  if (live >= 0) return live;
+  if (next >= 0) return next;
+  return 0;
+}
+
 function selectMatch(index) {
   state.current = state.matches[index];
+  el.select.value = String(index); // keep the dropdown in sync when called programmatically
   state.rotation = 0;
   hideResult(); // clear any previous result on a different selection
   preloadLogos(state.current.sections);
@@ -1186,7 +1204,7 @@ async function init() {
     }
     populateSelect();
     setStatus(`${matches.length} matches loaded`, 'ok');
-    selectMatch(0);
+    selectMatch(defaultMatchIndex());
     scheduleLive();
     syncLiveStream();
   } catch (err) {
