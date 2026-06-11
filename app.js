@@ -400,6 +400,11 @@ function eventToMatch(ev) {
     id: ev.id,
     title: (ev.title || '').trim() || 'Match',
     sections,
+    // End-of-game signals (resolution can lag the final whistle by a while):
+    // an explicit `ended` flag if the payload carries one, and how many
+    // moneylines still accept orders — books close at the final whistle.
+    ended: ev.ended === true,
+    acceptingOpen: moneyline.filter((m) => m.acceptingOrders !== false).length,
     // Probabilities as of the last REST snapshot — the baseline the live
     // stream deltas are measured against in the status line.
     baseline: sections.map((s) => ({ label: s.label, prob: s.prob })),
@@ -444,11 +449,25 @@ function endTime(match) {
 // stale unresolved game doesn't stay "live" forever. All math is epoch-based,
 // so it is correct regardless of the viewer's timezone.
 const LIVE_WINDOW_MS = 3 * 60 * 60 * 1000;
+// Polymarket resolves markets well after the final whistle, so "still listed"
+// over-reports liveness. A match counts as ended when the event says so, or
+// when its books stopped accepting orders past the ~100-minute mark (early
+// order pauses are in-play reviews, not the end; they re-open within a tick).
+const ENDED_MIN_MINUTES = 100;
+function matchEnded(match) {
+  if (!match) return false;
+  if (match.ended) return true;
+  const s = match.startTime ? Date.parse(match.startTime) : NaN;
+  if (Number.isNaN(s)) return false;
+  const mins = (Date.now() - s) / 60000;
+  return mins > ENDED_MIN_MINUTES && (match.acceptingOpen || 0) < 2;
+}
+
 function isLive(match) {
   const s = match && match.startTime ? Date.parse(match.startTime) : NaN;
   if (Number.isNaN(s)) return false;
   const now = Date.now();
-  return now >= s && now < s + LIVE_WINDOW_MS;
+  return now >= s && now < s + LIVE_WINDOW_MS && !matchEnded(match);
 }
 
 async function loadMatches() {
@@ -540,12 +559,16 @@ function renderUpdated() {
 }
 
 /* ----------------------------- DROPDOWN ---------------------------------- */
+function matchPrefix(m) {
+  return isLive(m) ? '🔴 ' : matchEnded(m) ? '🏁 ' : '';
+}
+
 function populateSelect() {
   el.select.innerHTML = '';
   state.matches.forEach((m, i) => {
     const opt = document.createElement('option');
     opt.value = String(i);
-    opt.textContent = (isLive(m) ? '🔴 ' : '') + m.title;
+    opt.textContent = matchPrefix(m) + m.title;
     el.select.appendChild(opt);
   });
   el.select.disabled = false;
@@ -555,7 +578,7 @@ function populateSelect() {
 function refreshLiveLabels() {
   Array.from(el.select.options).forEach((opt, i) => {
     const m = state.matches[i];
-    if (m) opt.textContent = (isLive(m) ? '🔴 ' : '') + m.title;
+    if (m) opt.textContent = matchPrefix(m) + m.title;
   });
   updateLiveBadge();
 }
@@ -615,6 +638,8 @@ function selectMatch(index) {
   syncLiveStream();
   if (isLive(state.current)) {
     setStatus(`${state.matches.length} matches · 🔴 live — connecting stream…`, 'ok');
+  } else if (matchEnded(state.current)) {
+    setStatus('🏁 Match ended — Polymarket is resolving the market.', '');
   } else {
     setStatus(`${state.matches.length} matches loaded`, 'ok');
   }
@@ -1191,7 +1216,9 @@ async function onLiveTick() {
   refreshLiveLabels(); // a match may have just kicked off — update badges
   syncLiveStream(); // open/close the WSS as matches enter/leave their window
   if (state.spinning) return;
-  if (state.matches.some(isLive)) await refreshLive();
+  // Keep reconciling while anything is live OR ended-but-unresolved, so we
+  // notice when Polymarket finally closes a finished match's market.
+  if (state.matches.some((m) => isLive(m) || matchEnded(m))) await refreshLive();
 }
 
 /* ------------------------- LIVE ODDS STREAM (WSS) ------------------------ */
@@ -1238,7 +1265,14 @@ function syncLiveStream() {
   if (typeof WebSocket === 'undefined') return;
   const tokens = liveStreamTokens();
   if (!tokens.length) {
+    const wasStreaming = !!stream.ws;
     closeLiveStream();
+    // The selected match just crossed from live to ended: say so instead of
+    // leaving the last streaming message on screen until resolution.
+    if (wasStreaming && matchEnded(state.current)) {
+      setStatus('🏁 Match ended — Polymarket is resolving the market.', '');
+      renderUpdated();
+    }
     return;
   }
   const sameSet =
