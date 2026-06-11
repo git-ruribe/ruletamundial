@@ -520,10 +520,10 @@ async function loadMatches() {
 }
 
 // Footer line: when the odds were last fetched, in the viewer's local time.
-// While the live stream is continuous it reads "Real Time" instead. Flashes
+// Reads "Real Time" only while the SELECTED match is live-streaming. Flashes
 // briefly on each change so a refresh is visibly a refresh.
 function renderUpdated() {
-  const text = streamActive()
+  const text = streamActive() && state.current && isLive(state.current)
     ? 'Updated Real Time'
     : state.lastUpdated
       ? `Updated ${new Date(state.lastUpdated).toLocaleString([], {
@@ -609,6 +609,16 @@ function selectMatch(index) {
   el.spin.disabled = false;
   updateLiveBadge();
   updateWhyButton();
+  // Start/stop the stream to match the new selection, and reset the status
+  // line so a stale "streaming" message never outlives the live match it
+  // belonged to. The 1s ticker takes over once the stream is connected.
+  syncLiveStream();
+  if (isLive(state.current)) {
+    setStatus(`${state.matches.length} matches · 🔴 live — connecting stream…`, 'ok');
+  } else {
+    setStatus(`${state.matches.length} matches loaded`, 'ok');
+  }
+  renderUpdated(); // footer back to date/time (or to Real Time) immediately
 }
 
 /* ------------------------------ TEAM FLAGS ------------------------------- */
@@ -1212,13 +1222,13 @@ function streamActive() {
   );
 }
 
+// The stream follows the SELECTION: only the currently selected match is
+// subscribed, and only while it's inside its live window. Selecting a
+// non-live match stops the stream; selecting another live one re-subscribes.
 function liveStreamTokens() {
-  const tokens = [];
-  for (const m of state.matches) {
-    if (!isLive(m)) continue;
-    for (const s of m.sections) if (s.token) tokens.push(s.token);
-  }
-  return tokens;
+  const m = state.current;
+  if (!m || !isLive(m)) return [];
+  return m.sections.filter((s) => s.token).map((s) => s.token);
 }
 
 // Open/close/resubscribe so the connection mirrors the set of live matches.
@@ -1465,7 +1475,7 @@ async function refreshLive() {
   if (vanished || !streamActive()) {
     setStatus(
       vanished
-        ? 'Your match closed on Polymarket — switched to the next one'
+        ? '🏁 Match finished — Polymarket closed its market. Showing the next match.'
         : `${state.matches.length} matches · live odds refreshed @ ${at}${faveMove}`,
       vanished ? '' : 'ok'
     );
