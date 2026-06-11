@@ -102,16 +102,22 @@
 
       <button id="spin-btn" class="btn btn--primary" disabled>Spin</button>
 
-      <div id="result" class="result is-hidden">
-        <span id="result-label" class="result__label">Result</span>
-        <div class="result__main">
-          <img id="result-flag" class="result__flag" alt="" />
-          <strong id="result-text" class="result__text"></strong>
+      <div class="result-slot">
+        <div id="match-info" class="match-info is-hidden">
+          <span id="match-info-when" class="match-info__when"></span>
+          <span id="match-info-venue" class="match-info__venue" hidden></span>
         </div>
-        <button id="share-btn" class="btn share-btn" type="button">
-          <span class="share-btn__icon" aria-hidden="true">📤</span>
-          <span id="share-label">Share result</span>
-        </button>
+        <div id="result" class="result is-hidden">
+          <span id="result-label" class="result__label">Result</span>
+          <div class="result__main">
+            <img id="result-flag" class="result__flag" alt="" />
+            <strong id="result-text" class="result__text"></strong>
+          </div>
+          <button id="share-btn" class="btn share-btn" type="button">
+            <span class="share-btn__icon" aria-hidden="true">📤</span>
+            <span id="share-label">Share result</span>
+          </button>
+        </div>
       </div>
     </section>
 

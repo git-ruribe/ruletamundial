@@ -100,6 +100,9 @@ const el = {
   status: document.getElementById('status'),
   spin: document.getElementById('spin-btn'),
   result: document.getElementById('result'),
+  matchInfo: document.getElementById('match-info'),
+  matchInfoWhen: document.getElementById('match-info-when'),
+  matchInfoVenue: document.getElementById('match-info-venue'),
   resultText: document.getElementById('result-text'),
   resultLabel: document.getElementById('result-label'),
   resultFlag: document.getElementById('result-flag'),
@@ -405,6 +408,8 @@ function eventToMatch(ev) {
     // moneylines still accept orders — books close at the final whistle.
     ended: ev.ended === true,
     acceptingOpen: moneyline.filter((m) => m.acceptingOrders !== false).length,
+    // Venue, when the payload provides one (field coverage varies by event).
+    venue: String(ev.venue || (ev.eventMetadata && ev.eventMetadata.venue) || '').trim(),
     // Probabilities as of the last REST snapshot — the baseline the live
     // stream deltas are measured against in the status line.
     baseline: sections.map((s) => ({ label: s.label, prob: s.prob })),
@@ -864,6 +869,7 @@ function announceWinner() {
 
   el.result.classList.toggle('is-upset', isUpset);
   el.result.classList.toggle('is-huge', isHuge);
+  reserve(el.matchInfo, false); // the result takes the slot over
   reserve(el.result, true);
 
   // Pop-in (restart the animation each time by toggling the class).
@@ -887,6 +893,36 @@ function hideResult() {
   // `visibility: hidden` and keep the previous winner's flag on screen.
   el.resultFlag.removeAttribute('src');
   el.resultFlag.style.visibility = 'hidden';
+  // With no result on screen, the slot shows the match's schedule instead.
+  renderMatchInfo();
+}
+
+// Kickoff in the viewer's local time (with timezone) plus venue when known.
+// Lives in the result slot: visible until a result lands, back on re-spin.
+function renderMatchInfo() {
+  const m = state.current;
+  if (!m || !el.matchInfo) { if (el.matchInfo) reserve(el.matchInfo, false); return; }
+  const t = m.startTime ? Date.parse(m.startTime) : NaN;
+  let when = '';
+  if (!Number.isNaN(t)) {
+    const local = new Date(t).toLocaleString([], {
+      weekday: 'short', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
+    });
+    when = isLive(m) ? `🔴 In play — kicked off ${local}`
+      : matchEnded(m) ? `🏁 Played ${local}`
+      : `📅 ${local}`;
+  }
+  el.matchInfoWhen.textContent = when;
+  if (m.venue) {
+    el.matchInfoVenue.textContent = `🏟 ${m.venue}`;
+    el.matchInfoVenue.hidden = false;
+  } else {
+    el.matchInfoVenue.hidden = true;
+  }
+  // Never show on top of a visible result — the result owns the slot.
+  const resultShowing = !el.result.classList.contains('is-hidden');
+  reserve(el.matchInfo, !!when && !resultShowing);
 }
 
 /* ----------------------------- CONFETTI ---------------------------------- */
@@ -1503,6 +1539,7 @@ async function refreshLive() {
   drawWheel();
   updateLiveBadge();
   updateWhyButton();
+  renderMatchInfo(); // live/ended adornment may have just changed
   // Say what just happened — otherwise a live refresh is indistinguishable
   // from a stale initial snapshot. Includes the refresh time and how the
   // current favourite moved since the previous tick (in percentage points).

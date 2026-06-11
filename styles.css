@@ -261,6 +261,26 @@ html, body {
   font-size: 0.95rem;
 }
 
+/* The result and the match info share the same slot (stacked grid cell):
+   match info shows while there is no result, the result replaces it. */
+.result-slot { display: grid; }
+.result-slot > * { grid-area: 1 / 1; }
+
+.match-info {
+  align-self: center;
+  justify-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 6px 10px;
+}
+.match-info__when { font-variant-numeric: tabular-nums; }
+.match-info__venue { font-size: 0.78rem; opacity: 0.85; }
+
 /* Result card (non-blocking: stays in flow, never covers the Spin button so
    you can re-spin without dismissing it). Height is reserved via .is-hidden. */
 .result {
