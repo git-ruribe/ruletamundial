@@ -16,6 +16,11 @@
 /* ----------------------------- CONFIGURATION ----------------------------- */
 const CONFIG = {
   gamma: 'https://gamma-api.polymarket.com',
+  // Public CLOB market stream: pushes order-book/price events for subscribed
+  // outcome tokens (no auth). Used only while a match is live; the 30s REST
+  // poll below stays as reconciliation and as the fallback where Polymarket
+  // is geo-blocked (the WSS is blocked in the same regions as the REST API).
+  clobWss: 'wss://ws-subscriptions-clob.polymarket.com/ws/market',
   // Fallback proxy for regions where Polymarket is geo-blocked (e.g. Switzerland).
   // Deploy proxy/worker.js to Cloudflare and paste its URL here (no trailing
   // slash). Leave '' to disable.
@@ -374,6 +379,7 @@ function eventToMatch(ev) {
     .map((m) => {
       const outs = parseList(m.outcomes);
       const prices = parseList(m.outcomePrices);
+      const tokens = parseList(m.clobTokenIds); // aligned with `outcomes`
       const yesIdx = outs.findIndex((o) => YES_RE.test(o));
       const label = (m.groupItemTitle || '').trim();
       return {
@@ -381,16 +387,22 @@ function eventToMatch(ev) {
         prob: yesIdx >= 0 ? Number(prices[yesIdx]) || 0 : 0,
         order: Number(m.groupItemThreshold) || 0,
         logo: logoFor[label.toLowerCase()] || null,
+        // CLOB token id of the "Yes" outcome — the WSS subscription key.
+        token: yesIdx >= 0 ? String(tokens[yesIdx] || '') || null : null,
       };
     })
     .filter((s) => s.label);
   if (raw.length < 2) return null;
 
   raw.sort((a, b) => a.order - b.order);
+  const sections = normalize(raw);
   return {
     id: ev.id,
     title: (ev.title || '').trim() || 'Match',
-    sections: normalize(raw),
+    sections,
+    // Probabilities as of the last REST snapshot — the baseline the live
+    // stream deltas are measured against in the status line.
+    baseline: sections.map((s) => ({ label: s.label, prob: s.prob })),
     startTime: ev.startTime || ev.endDate || null,
     endDate: ev.endDate || ev.startTime || null,
     context: ((ev.eventMetadata && ev.eventMetadata.context_description) || '').trim(),
@@ -398,6 +410,8 @@ function eventToMatch(ev) {
   };
 }
 // Remove the "vig": rescale probabilities to sum to 1 and assign colors.
+// `raw` (the unscaled Yes price) is kept so live stream prices can replace it
+// and the match can be re-normalized in place.
 function normalize(sections) {
   const total = sections.reduce((s, x) => s + (x.prob > 0 ? x.prob : 0), 0);
   return sections.map((s, i) => {
@@ -408,8 +422,16 @@ function normalize(sections) {
     else color = i === sections.length - 1 ? COLORS.team2 : COLORS.team1;
     // Clean up Polymarket's verbose draw label "Draw (A vs. B)" → "Draw".
     const label = isDraw ? 'Draw' : s.label;
-    return { label, prob, color, logo: s.logo || null };
+    return { label, prob, raw: Math.max(s.prob, 0), color, logo: s.logo || null, token: s.token || null };
   });
+}
+
+// Recompute de-vigged probabilities from the sections' current raw prices.
+function renormalizeMatch(match) {
+  const total = match.sections.reduce((s, x) => s + (x.raw > 0 ? x.raw : 0), 0);
+  for (const s of match.sections) {
+    s.prob = total > 0 ? Math.max(s.raw, 0) / total : 1 / match.sections.length;
+  }
 }
 
 function endTime(match) {
@@ -1125,6 +1147,7 @@ async function init() {
     setStatus(`${matches.length} matches loaded`, 'ok');
     selectMatch(0);
     scheduleLive();
+    syncLiveStream();
   } catch (err) {
     console.error(err);
     el.select.innerHTML = '<option>Unavailable</option>';
@@ -1150,8 +1173,227 @@ function scheduleLive() {
 
 async function onLiveTick() {
   refreshLiveLabels(); // a match may have just kicked off — update badges
+  syncLiveStream(); // open/close the WSS as matches enter/leave their window
   if (state.spinning) return;
   if (state.matches.some(isLive)) await refreshLive();
+}
+
+/* ------------------------- LIVE ODDS STREAM (WSS) ------------------------ */
+// Sub-second odds for live matches via Polymarket's public CLOB market
+// channel. The stream only accelerates what happens BETWEEN the 30s REST
+// polls; the poll remains the source of truth (it catches resolutions,
+// de-listings and missed messages) and the full fallback where the WSS is
+// geo-blocked — there, everything keeps working exactly as before.
+const stream = {
+  ws: null,
+  tokens: new Set(), // token ids currently subscribed
+  prices: new Map(), // token id -> { bid, ask, last }
+  retry: 0,
+  reconnectTimer: null,
+  keepaliveTimer: null,
+  applyTimer: null,
+  statusAt: 0,
+};
+
+function liveStreamTokens() {
+  const tokens = [];
+  for (const m of state.matches) {
+    if (!isLive(m)) continue;
+    for (const s of m.sections) if (s.token) tokens.push(s.token);
+  }
+  return tokens;
+}
+
+// Open/close/resubscribe so the connection mirrors the set of live matches.
+// Subscriptions are fixed per connection, so a changed set means reconnect
+// (it only changes at kickoff/final-whistle boundaries).
+function syncLiveStream() {
+  if (typeof WebSocket === 'undefined') return;
+  const tokens = liveStreamTokens();
+  if (!tokens.length) {
+    closeLiveStream();
+    return;
+  }
+  const sameSet =
+    stream.ws &&
+    stream.ws.readyState <= WebSocket.OPEN &&
+    tokens.length === stream.tokens.size &&
+    tokens.every((t) => stream.tokens.has(t));
+  if (sameSet) return;
+  openLiveStream(tokens);
+}
+
+function openLiveStream(tokens) {
+  closeLiveStream();
+  let ws;
+  try {
+    ws = new WebSocket(CONFIG.clobWss);
+  } catch {
+    return; // blocked environment — REST poll keeps everything alive
+  }
+  stream.ws = ws;
+  stream.tokens = new Set(tokens);
+  // Drop quotes of matches that left the live window.
+  for (const k of [...stream.prices.keys()]) {
+    if (!stream.tokens.has(k)) stream.prices.delete(k);
+  }
+
+  ws.onopen = () => {
+    stream.retry = 0;
+    ws.send(JSON.stringify({ type: 'market', assets_ids: tokens }));
+    // The server drops quiet connections; answer/keep it warm every 5s.
+    stream.keepaliveTimer = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) ws.send('PING');
+    }, 5000);
+  };
+  ws.onmessage = (e) => handleStreamMessage(e.data);
+  ws.onclose = () => {
+    if (stream.ws !== ws) return; // an intentional close/replace
+    cleanupStreamTimers();
+    stream.ws = null;
+    scheduleStreamReconnect();
+  };
+  ws.onerror = () => {
+    try { ws.close(); } catch { /* ignore */ }
+  };
+}
+
+function cleanupStreamTimers() {
+  if (stream.keepaliveTimer) { clearInterval(stream.keepaliveTimer); stream.keepaliveTimer = null; }
+  if (stream.applyTimer) { clearTimeout(stream.applyTimer); stream.applyTimer = null; }
+}
+
+function closeLiveStream() {
+  if (stream.reconnectTimer) { clearTimeout(stream.reconnectTimer); stream.reconnectTimer = null; }
+  cleanupStreamTimers();
+  const ws = stream.ws;
+  stream.ws = null;
+  stream.tokens = new Set();
+  if (ws) {
+    ws.onclose = null;
+    try { ws.close(); } catch { /* ignore */ }
+  }
+}
+
+function scheduleStreamReconnect() {
+  if (stream.reconnectTimer) return;
+  const delay = Math.min(30000, 1000 * 2 ** stream.retry++);
+  stream.reconnectTimer = setTimeout(() => {
+    stream.reconnectTimer = null;
+    syncLiveStream();
+  }, delay);
+}
+
+// Best bid/ask from a book snapshot side (levels arrive in no fixed order).
+function bestPrice(levels, pickMax) {
+  let best = null;
+  for (const l of levels || []) {
+    const p = Number(l && l.price);
+    if (!Number.isFinite(p) || p <= 0 || p >= 1) continue;
+    if (best === null || (pickMax ? p > best : p < best)) best = p;
+  }
+  return best;
+}
+
+function priceEntry(token) {
+  let entry = stream.prices.get(token);
+  if (!entry) { entry = { bid: null, ask: null, last: null }; stream.prices.set(token, entry); }
+  return entry;
+}
+
+function handleStreamMessage(data) {
+  if (typeof data !== 'string' || data === 'PONG' || data === 'PING') return;
+  let parsed;
+  try { parsed = JSON.parse(data); } catch { return; }
+  const events = Array.isArray(parsed) ? parsed : [parsed];
+  let touched = false;
+
+  for (const ev of events) {
+    if (!ev || typeof ev !== 'object') continue;
+    const type = ev.event_type || ev.type;
+
+    if (type === 'book' && ev.asset_id) {
+      const entry = priceEntry(ev.asset_id);
+      entry.bid = bestPrice(ev.bids || ev.buys, true);
+      entry.ask = bestPrice(ev.asks || ev.sells, false);
+      touched = true;
+    } else if (type === 'price_change') {
+      // Both shapes seen in the wild: top-level {asset_id, changes:[…]} and
+      // aggregated {price_changes:[{asset_id, best_bid, best_ask, …}]}.
+      const changes = ev.price_changes || ev.changes || [ev];
+      for (const c of changes) {
+        const token = (c && c.asset_id) || ev.asset_id;
+        if (!token) continue;
+        const entry = priceEntry(token);
+        const bid = Number(c && c.best_bid);
+        const ask = Number(c && c.best_ask);
+        if (Number.isFinite(bid) && bid > 0) { entry.bid = bid; touched = true; }
+        if (Number.isFinite(ask) && ask < 1 && ask > 0) { entry.ask = ask; touched = true; }
+      }
+    } else if (type === 'last_trade_price' && ev.asset_id) {
+      const p = Number(ev.price);
+      if (Number.isFinite(p) && p > 0 && p < 1) {
+        priceEntry(ev.asset_id).last = p;
+        touched = true;
+      }
+    }
+  }
+  if (touched) queueStreamApply();
+}
+
+// Coalesce bursts of book events into at most ~2 UI updates per second.
+function queueStreamApply() {
+  if (stream.applyTimer) return;
+  stream.applyTimer = setTimeout(applyStreamPrices, 500);
+}
+
+function streamProb(token) {
+  const e = stream.prices.get(token);
+  if (!e) return null;
+  if (e.bid !== null && e.ask !== null) return (e.bid + e.ask) / 2;
+  return e.last; // may be null — then the REST price stands
+}
+
+function applyStreamPrices() {
+  stream.applyTimer = null;
+  if (state.spinning) { queueStreamApply(); return; } // never resize mid-spin
+  let currentChanged = false;
+
+  for (const m of state.matches) {
+    if (!isLive(m)) continue;
+    let changed = false;
+    for (const s of m.sections) {
+      if (!s.token) continue;
+      const p = streamProb(s.token);
+      // Ignore sub-0.05pp jitter so the wheel doesn't vibrate.
+      if (p !== null && Math.abs(p - s.raw) > 0.0005) { s.raw = p; changed = true; }
+    }
+    if (changed) {
+      renormalizeMatch(m);
+      if (m === state.current) currentChanged = true;
+    }
+  }
+
+  if (currentChanged) {
+    drawWheel();
+    renderStreamStatus();
+  }
+}
+
+// "🔴 streaming" status: favourite's move vs the last REST snapshot.
+function renderStreamStatus() {
+  const m = state.current;
+  if (!m || !isLive(m)) return;
+  const now = Date.now();
+  if (now - stream.statusAt < 1500) return;
+  stream.statusAt = now;
+  const at = new Date(now).toLocaleTimeString([], {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  const fave = m.sections.reduce((a, b) => (b.prob > a.prob ? b : a), m.sections[0]);
+  const base = (m.baseline || []).find((s) => s.label === fave.label);
+  const move = base ? ` · ${fave.label} ${fave.prob - base.prob >= 0 ? '+' : ''}${((fave.prob - base.prob) * 100).toFixed(1)}pp` : '';
+  setStatus(`${state.matches.length} matches · 🔴 streaming @ ${at}${move}`, 'ok');
 }
 
 // Re-fetch odds without disturbing the current spin/selection/rotation.
@@ -1199,6 +1441,7 @@ async function refreshLive() {
       : `${state.matches.length} matches · live odds refreshed @ ${at}${faveMove}`,
     vanished ? '' : 'ok'
   );
+  syncLiveStream(); // the fresh match list may have entered/left live windows
 }
 
 function drawPlaceholder() {
