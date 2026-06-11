@@ -1157,6 +1157,7 @@ async function onLiveTick() {
 // Re-fetch odds without disturbing the current spin/selection/rotation.
 async function refreshLive() {
   const prevId = state.current && state.current.id;
+  const prevSections = state.current ? state.current.sections : null;
   try {
     await loadMatches();
   } catch {
@@ -1175,11 +1176,27 @@ async function refreshLive() {
   updateLiveBadge();
   updateWhyButton();
   // Say what just happened — otherwise a live refresh is indistinguishable
-  // from a stale initial snapshot.
+  // from a stale initial snapshot. Includes the refresh time and how the
+  // current favourite moved since the previous tick (in percentage points).
+  const at = new Date(state.lastUpdated).toLocaleTimeString([], {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+  let faveMove = '';
+  if (!vanished && prevSections) {
+    const fave = state.current.sections.reduce(
+      (a, b) => (b.prob > a.prob ? b : a),
+      state.current.sections[0]
+    );
+    const before = prevSections.find((s) => s.label === fave.label);
+    if (before) {
+      const pp = (fave.prob - before.prob) * 100;
+      faveMove = ` · ${fave.label} ${pp >= 0 ? '+' : ''}${pp.toFixed(1)}pp`;
+    }
+  }
   setStatus(
     vanished
       ? 'Your match closed on Polymarket — switched to the next one'
-      : `${state.matches.length} matches · live odds refreshed`,
+      : `${state.matches.length} matches · live odds refreshed @ ${at}${faveMove}`,
     vanished ? '' : 'ok'
   );
 }
