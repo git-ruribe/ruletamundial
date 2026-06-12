@@ -4,13 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>World Cup Predictor — Bracket Seeded by Polymarket</title>
-  <meta name="description" content="Predict the 2026 World Cup: group standings pre-seeded with Polymarket's exact-score markets, reorder them your way and watch the full knockout bracket build itself." />
+  <meta name="description" content="Predict the 2026 World Cup: group standings pre-seeded with Polymarket's live match odds and real results, reorder them your way and watch the full knockout bracket build itself." />
   <link rel="canonical" href="https://gonnafind.com/predictor.html" />
   <meta name="theme-color" content="#0d1117" />
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="World Cup Wheel" />
   <meta property="og:title" content="World Cup Predictor — the market already filled your bracket" />
-  <meta property="og:description" content="Group standings seeded by Polymarket exact-score odds. Disagree? Drag teams around and build your own road to the final." />
+  <meta property="og:description" content="Group standings seeded by Polymarket's live match odds. Disagree? Drag teams around and build your own road to the final." />
   <meta property="og:url" content="https://gonnafind.com/predictor.html" />
   <meta property="og:image" content="https://gonnafind.com/og-image.png" />
   <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -205,7 +205,8 @@
   <header class="hero">
     <h1>🔮 World Cup Predictor</h1>
     <p>The crowd already filled your bracket: group standings are seeded from <strong>Polymarket's
-      exact-score markets</strong>. Disagree? Move teams around — the road to the final rebuilds itself live.</p>
+      live match odds</strong> — and real scores once games are played. Disagree? Move teams around —
+      the road to the final rebuilds itself live.</p>
     <div class="nav">
       <a href="/">🎡 Spin the Wheel</a>
       <button id="resetall">↺ Reset to market</button>
@@ -221,7 +222,7 @@
     <div id="error" class="error" hidden></div>
 
     <section id="groups-section" hidden>
-      <h2>🏟 Groups <span class="h2sub" style="margin:0">— tap 📊 for predicted scores · drag or ▲▼ to reorder</span></h2>
+      <h2>🏟 Groups <span class="h2sub" style="margin:0">— tap 📊 for results &amp; predictions · drag or ▲▼ to reorder</span></h2>
       <div id="groups" class="groups"></div>
     </section>
 
@@ -247,7 +248,7 @@
   </main>
 
   <footer>
-    Seeded by Polymarket exact-score &amp; moneyline markets · For entertainment only ·
+    Seeded by Polymarket match odds · real results from resolved markets · For entertainment only ·
     <a href="/">World Cup Wheel</a>
   </footer>
 
@@ -396,13 +397,16 @@ function buildModel(events) {
     const ctx = (ev.eventMetadata && ev.eventMetadata.context_description) || '';
     const gm = ctx.match(/group\s+([A-L])\b/i);
 
+    // Played games take their real score from the resolved exact-score market.
+    // Future games are predicted from the moneyline (1X2) instead: the modal
+    // exact score (often 1-1) can out-price every individual win scoreline
+    // even when a win is the likelier outcome overall, so argmax-of-scores
+    // over-predicts draws. Exact scores stay only as a last-resort fallback.
     const exact = exactByParent.get(String(ev.id));
     const best = exact ? scoreFromExact(exact) : null;
-    let rec;
+    let rec = null;
     if (best && best.resolved) { rec = { hs: best.hs, as: best.as, prob: 1, src: 'real' }; S.realCount++; }
-    else if (best) { rec = { hs: best.hs, as: best.as, prob: best.p, src: 'exact' }; S.exactCount++; }
     else {
-      // moneyline fallback: most likely 1X2 with a conventional scoreline
       const ml = (ev.markets || []).filter((m) => m.sportsMarketType === 'moneyline');
       let top = null;
       for (const m of ml) {
@@ -412,12 +416,14 @@ function buildModel(events) {
         const label = m.groupItemTitle || '';
         if (!top || p > top.p) top = { label, p };
       }
-      if (!top) continue;
-      const isDraw = /\bdraw\b/i.test(top.label);
-      const homeWin = !isDraw && top.label.trim().toLowerCase() === home.name.trim().toLowerCase();
-      rec = { hs: isDraw ? 1 : homeWin ? 1 : 0, as: isDraw ? 1 : homeWin ? 0 : 1, prob: top.p, src: 'ml' };
-      S.mlCount++;
+      if (top && top.p > 0) {
+        const isDraw = /\bdraw\b/i.test(top.label);
+        const homeWin = !isDraw && canonName(top.label) === canonName(home.name);
+        rec = { hs: isDraw ? 1 : homeWin ? 1 : 0, as: isDraw ? 1 : homeWin ? 0 : 1, prob: top.p, src: 'ml' };
+        S.mlCount++;
+      } else if (best) { rec = { hs: best.hs, as: best.as, prob: best.p, src: 'exact' }; S.exactCount++; }
     }
+    if (!rec) continue;
     S.matches.push({ home: home.name, away: away.name, when: ev.startTime || '', letterHint: gm ? gm[1].toUpperCase() : null, ...rec });
   }
 
@@ -573,9 +579,9 @@ function render() {
 function renderSeedbar() {
   const edits = Object.keys(S.user.order).length + Object.keys(S.user.picks).length + (S.user.thirds ? 1 : 0);
   $('seedbar').innerHTML =
-    '<span class="chip">📊 exact score: <b>' + S.exactCount + '</b></span>'
-    + '<span class="chip">≈ moneyline: <b>' + S.mlCount + '</b></span>'
-    + (S.realCount ? '<span class="chip">✅ played: <b>' + S.realCount + '</b></span>' : '')
+    (S.realCount ? '<span class="chip">✅ played: <b>' + S.realCount + '</b></span>' : '')
+    + '<span class="chip">📊 match odds: <b>' + S.mlCount + '</b></span>'
+    + (S.exactCount ? '<span class="chip">≈ exact score: <b>' + S.exactCount + '</b></span>' : '')
     + (S.winnerProb.size ? '<span class="chip">🏆 winner odds: <b>' + S.winnerProb.size + ' teams</b></span>' : '')
     + '<span class="chip">✋ your edits: <b>' + edits + '</b></span>'
     + (S.loadedAt ? '<span class="chip">updated <b>' + S.loadedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</b></span>' : '');
@@ -608,7 +614,7 @@ function renderGroups(tables) {
           '<div class="gm"><span>' + esc(short(m.home)) + '</span>'
           + '<span class="sc' + (m.src === 'real' ? ' real' : '') + '">' + m.hs + ' - ' + m.as + '</span>'
           + '<span>' + esc(short(m.away)) + '</span>'
-          + '<span class="pr">' + (m.src === 'real' ? 'FT ✓' : m.src === 'exact' ? (m.prob * 100).toFixed(0) + '%' : '≈1X2') + '</span></div>'
+          + '<span class="pr">' + (m.src === 'real' ? 'FT ✓' : (m.prob * 100).toFixed(0) + '%') + '</span></div>'
         ).join('') + '</div>'
       + '</div>';
   }).join('');
