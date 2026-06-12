@@ -21,6 +21,7 @@
       --green: #3fb950; --amber: #d29922; --red: #f85149; --radius: 14px;
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; } /* beat display:grid/flex on hidden sections */
     html, body { margin: 0; background: var(--bg); color: var(--text); }
     body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.45; }
 
@@ -140,18 +141,27 @@
 
     /* ───────────────────── BRACKET ────────────────────────── */
     .bracketwrap { overflow-x: auto; padding-bottom: 10px; -webkit-overflow-scrolling: touch; }
-    .bracket { display: flex; gap: 26px; min-width: 1140px; padding: 8px 2px; }
-    .round { display: flex; flex-direction: column; justify-content: space-around; gap: 10px; flex: 1; min-width: 178px; }
-    .round h3 { margin: 0 0 2px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); text-align: center; }
+    .bracket { display: flex; min-width: 1180px; padding: 8px 2px; }
+    .round { display: flex; flex-direction: column; flex: 1; min-width: 188px; }
+    .round h3 { margin: 0 0 6px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); text-align: center; }
+    /* Each .pair holds the two matches that feed ONE match in the next column;
+       a rounded brace on the right visually merges them into it. */
+    .pair {
+      flex: 1; display: flex; flex-direction: column; justify-content: space-around;
+      position: relative; padding: 4px 18px 4px 4px; min-height: 0;
+    }
+    .pair:not(.solo)::after {
+      content: ''; position: absolute; right: 5px; top: 25%; bottom: 25%; width: 11px;
+      border: 1px solid var(--border); border-left: none; border-radius: 0 10px 10px 0;
+    }
     .ko {
       position: relative; border: 1px solid var(--border); border-radius: 12px; background: var(--panel);
-      padding: 5px; transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      padding: 5px; margin: 4px 0; transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
-    .ko::after {  /* connector stub to the next round */
-      content: ''; position: absolute; right: -27px; top: 50%; width: 26px; height: 1px;
+    .round + .round .ko::before { /* stub from the previous pair's brace */
+      content: ''; position: absolute; left: -15px; top: 50%; width: 14px; height: 1px;
       background: var(--border);
     }
-    .round:last-child .ko::after { display: none; }
     .ko .mn { position: absolute; top: -8px; left: 10px; font-size: 0.6rem; color: var(--muted); background: var(--bg); padding: 0 5px; border-radius: 5px; }
     .slot {
       display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 8px; cursor: pointer;
@@ -556,21 +566,45 @@ function renderThirds(thirds) {
     + '</span>').join('');
 }
 
-function renderBracket(games) {
-  const col = (title, list) =>
-    '<div class="round"><h3>' + title + '</h3>' + list.map((g) => {
-      const game = games.get(g.n);
-      const slot = (team) => {
-        if (!team) return '<div class="slot"><span class="tbd">—</span></div>';
-        const win = game.winner === team;
-        return '<div class="slot ' + (win ? 'win' : 'lose') + '" data-pick="' + g.n + '" data-team="' + esc(team) + '">'
-          + flag(team, 22) + esc(short(team)) + (win && game.manual ? '<span class="hand">✋</span>' : '') + '</div>';
-      };
-      return '<div class="ko"><span class="mn">M' + g.n + '</span>' + slot(game.home) + slot(game.away) + '</div>';
-    }).join('') + '</div>';
+// Columns laid out in TREE order (final → backwards): the two feeders of any
+// match sit adjacent in the previous column, so connectors never cross.
+const ROUND_NAMES = ['Round of 32', 'Round of 16', 'Quarterfinals', 'Semifinals', 'Final'];
+function bracketColumns() {
+  const defs = new Map();
+  R32.forEach((g) => defs.set(g.n, g));
+  ROUNDS.forEach((r) => r.games.forEach((g) => defs.set(g.n, g)));
+  let cols = [[104]];
+  for (;;) {
+    const next = cols[0].flatMap((n) => { const g = defs.get(n); return g.a != null ? [g.a, g.b] : []; });
+    if (!next.length) break;
+    cols.unshift(next);
+  }
+  return cols; // [R32×16, R16×8, QF×4, SF×2, Final×1]
+}
 
-  $('bracket').innerHTML = col('Round of 32', R32)
-    + ROUNDS.map((r) => col(r.name, r.games)).join('');
+function renderBracket(games) {
+  const koCard = (n) => {
+    const game = games.get(n);
+    const slot = (team) => {
+      if (!team) return '<div class="slot"><span class="tbd">—</span></div>';
+      const win = game.winner === team;
+      return '<div class="slot ' + (win ? 'win' : 'lose') + '" data-pick="' + n + '" data-team="' + esc(team) + '">'
+        + flag(team, 22) + esc(short(team)) + (win && game.manual ? '<span class="hand">✋</span>' : '') + '</div>';
+    };
+    return '<div class="ko"><span class="mn">M' + n + '</span>' + slot(game.home) + slot(game.away) + '</div>';
+  };
+
+  const cols = bracketColumns();
+  $('bracket').innerHTML = cols.map((ns, ci) => {
+    const pairs = [];
+    if (ns.length === 1) pairs.push(ns);
+    else for (let i = 0; i < ns.length; i += 2) pairs.push(ns.slice(i, i + 2));
+    return '<div class="round"><h3>' + ROUND_NAMES[ci] + '</h3>'
+      + pairs.map((p) =>
+          '<div class="pair' + (p.length < 2 ? ' solo' : '') + '">' + p.map(koCard).join('') + '</div>'
+        ).join('')
+      + '</div>';
+  }).join('');
 
   const final = games.get(104);
   const champ = final && final.winner;
