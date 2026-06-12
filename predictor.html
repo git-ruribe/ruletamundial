@@ -94,13 +94,17 @@
     .iconbtn:hover { color: var(--text); border-color: var(--accent); }
 
     .trow {
-      display: grid; grid-template-columns: 18px 26px 1fr auto auto; gap: 7px; align-items: center;
+      display: grid; grid-template-columns: 16px 18px 26px 1fr auto auto; gap: 6px; align-items: center;
       padding: 6px 7px; border-radius: 10px; margin: 3px 0; background: rgba(28,35,48,0.55);
-      border: 1px solid transparent; cursor: grab; user-select: none;
+      border: 1px solid transparent; user-select: none;
       transition: background 0.15s ease, border-color 0.15s ease;
     }
-    .trow:active { cursor: grabbing; }
     .trow.dragover { border-color: var(--accent); }
+    .trow.dragging { opacity: 0.55; }
+    /* Drag handle: pointer-events drag works on iOS too (touch-action: none
+       only here, so the rest of the row still scrolls the page normally). */
+    .grip { color: var(--muted); font-size: 0.8rem; cursor: grab; touch-action: none; text-align: center; }
+    .grip:active { cursor: grabbing; }
     .trow .pos { font-weight: 800; font-size: 0.8rem; text-align: center; color: var(--muted); }
     .trow.p1 .pos, .trow.p2 .pos { color: var(--green); }
     .trow.p3 .pos { color: var(--amber); }
@@ -140,40 +144,37 @@
     .third .updn button { font-size: 0.62rem; }
 
     /* ───────────────────── BRACKET ────────────────────────── */
+    /* Mirrored tournament tree: both halves converge on the trophy at the
+       center. Pure flag chips; tap one to send it through. */
     .bracketwrap { overflow-x: auto; padding-bottom: 10px; -webkit-overflow-scrolling: touch; }
-    .bracket { display: flex; min-width: 1180px; padding: 8px 2px; }
-    .round { display: flex; flex-direction: column; flex: 1; min-width: 188px; }
-    .round h3 { margin: 0 0 6px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); text-align: center; }
-    /* Each .pair holds the two matches that feed ONE match in the next column;
-       a rounded brace on the right visually merges them into it. */
-    .pair {
-      flex: 1; display: flex; flex-direction: column; justify-content: space-around;
-      position: relative; padding: 4px 18px 4px 4px; min-height: 0;
+    .blabels { display: grid; grid-template-columns: repeat(11, 1fr); min-width: 1020px; margin-bottom: 4px; }
+    .blabels span { text-align: center; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .bracket {
+      position: relative; display: grid; min-width: 1020px;
+      grid-template-columns: repeat(11, 1fr);
+      grid-template-rows: repeat(32, minmax(13px, 1fr));
+      column-gap: 4px; padding: 6px 2px;
     }
-    .pair:not(.solo)::after {
-      content: ''; position: absolute; right: 5px; top: 25%; bottom: 25%; width: 11px;
-      border: 1px solid var(--border); border-left: none; border-radius: 0 10px 10px 0;
+    svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+    .chip {
+      position: relative; z-index: 1; place-self: center;
+      width: 36px; height: 36px; border-radius: 50%; overflow: hidden;
+      background: var(--panel2); border: 2px solid #3d4654; cursor: pointer; padding: 0;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     }
-    .ko {
-      position: relative; border: 1px solid var(--border); border-radius: 12px; background: var(--panel);
-      padding: 5px; margin: 4px 0; transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    .chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .chip:hover { transform: scale(1.18); border-color: var(--accent); z-index: 2; }
+    .chip.manual { border-color: var(--accent); box-shadow: 0 0 10px rgba(255, 210, 63, 0.55); }
+    .chip.tbd { opacity: 0.3; cursor: default; }
+    .center-cell {
+      grid-column: 6; grid-row: 1 / -1; place-self: center; z-index: 1;
+      text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px;
     }
-    .round + .round .ko::before { /* stub from the previous pair's brace */
-      content: ''; position: absolute; left: -15px; top: 50%; width: 14px; height: 1px;
-      background: var(--border);
-    }
-    .ko .mn { position: absolute; top: -8px; left: 10px; font-size: 0.6rem; color: var(--muted); background: var(--bg); padding: 0 5px; border-radius: 5px; }
-    .slot {
-      display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 8px; cursor: pointer;
-      font-size: 0.8rem; font-weight: 700; border: 1px solid transparent; min-height: 30px;
-      transition: background 0.15s ease;
-    }
-    .slot:hover { background: var(--panel2); }
-    .slot img { width: 22px; height: 15px; object-fit: contain; }
-    .slot .tbd { color: var(--muted); font-weight: 500; font-size: 0.74rem; }
-    .slot.win { background: rgba(63,185,80,0.12); border-color: rgba(63,185,80,0.45); }
-    .slot.lose { opacity: 0.45; }
-    .slot .hand { margin-left: auto; font-size: 0.7rem; }
+    .center-cell .chip { width: 56px; height: 56px; cursor: default; border-color: var(--accent); box-shadow: 0 0 18px rgba(255,210,63,0.4); }
+    .center-cell .cup { font-size: 2rem; line-height: 1; animation: bounce 2.4s ease infinite; }
+    .center-cell .cname { font-size: 0.78rem; font-weight: 800; max-width: 90px; }
+    .center-cell .cpct { font-size: 0.64rem; color: var(--muted); }
 
     .champ {
       margin-top: 6px; text-align: center; border: 1px solid rgba(255,210,63,0.5); border-radius: 16px;
@@ -226,9 +227,16 @@
     </section>
 
     <section id="bracket-section" hidden>
-      <h2>🏆 Knockout bracket</h2>
-      <p class="h2sub">Tap any team to pick a different winner. ✋ = your pick, the rest follow the market's strength.</p>
-      <div class="bracketwrap"><div id="bracket" class="bracket"></div></div>
+      <h2>🏆 Road to the final</h2>
+      <p class="h2sub">Both halves converge on the trophy. Tap any flag to send that team through — golden ring = your pick, the rest follow the winner market.</p>
+      <div class="bracketwrap">
+        <div class="blabels">
+          <span>R32</span><span>R16</span><span>QF</span><span>SF</span><span>Final</span>
+          <span>🏆</span>
+          <span>Final</span><span>SF</span><span>QF</span><span>R16</span><span>R32</span>
+        </div>
+        <div id="bracket" class="bracket"></div>
+      </div>
       <div id="champ"></div>
     </section>
   </main>
@@ -582,7 +590,8 @@ function renderGroups(tables) {
       + '</span></div>'
       + rows.map((r, i) => {
         const moved = touched && rows.marketOrder[i] !== r.team;
-        return '<div class="trow p' + (i + 1) + '" draggable="true" data-flip="' + esc(l + r.team) + '" data-g="' + l + '" data-t="' + esc(r.team) + '">'
+        return '<div class="trow p' + (i + 1) + '" data-flip="' + esc(l + r.team) + '" data-g="' + l + '" data-t="' + esc(r.team) + '">'
+          + '<span class="grip" aria-hidden="true">⠿</span>'
           + '<span class="pos">' + (i + 1) + '</span>' + flag(r.team)
           + '<span class="name">' + esc(r.team) + (moved ? ' <span class="hand">✋</span>' : '') + '</span>'
           + '<span class="stats"><b>' + r.pts + '</b>pts ' + (r.gd >= 0 ? '+' : '') + r.gd + '</span>'
@@ -611,9 +620,8 @@ function renderThirds(thirds) {
     + '</span>').join('');
 }
 
-// Columns laid out in TREE order (final → backwards): the two feeders of any
-// match sit adjacent in the previous column, so connectors never cross.
-const ROUND_NAMES = ['Round of 32', 'Round of 16', 'Quarterfinals', 'Semifinals', 'Final'];
+// Tree order (final → backwards): the two feeders of any match sit adjacent
+// in the previous column, so connectors never cross.
 function bracketColumns() {
   const defs = new Map();
   R32.forEach((g) => defs.set(g.n, g));
@@ -627,42 +635,111 @@ function bracketColumns() {
   return cols; // [R32×16, R16×8, QF×4, SF×2, Final×1]
 }
 
+// Which match the winner of `n` plays next.
+const PARENT = (() => {
+  const p = {};
+  ROUNDS.forEach((r) => r.games.forEach((g) => { p[g.a] = g.n; p[g.b] = g.n; }));
+  return p;
+})();
+
+// Mirrored tree: left half = the semifinal-101 subtree flowing →, right half
+// = the 102 subtree flowing ←, champion + trophy in the middle.
 function renderBracket(games) {
-  const koCard = (n) => {
-    const game = games.get(n);
-    const slot = (team) => {
-      if (!team) return '<div class="slot"><span class="tbd">—</span></div>';
-      const win = game.winner === team;
-      return '<div class="slot ' + (win ? 'win' : 'lose') + '" data-pick="' + n + '" data-team="' + esc(team) + '">'
-        + flag(team, 22) + esc(short(team)) + (win && game.manual ? '<span class="hand">✋</span>' : '') + '</div>';
-    };
-    return '<div class="ko"><span class="mn">M' + n + '</span>' + slot(game.home) + slot(game.away) + '</div>';
+  const leaves = bracketColumns()[0];
+  const halves = [leaves.slice(0, 8), leaves.slice(8)];
+  const html = [];
+
+  const chip = (id, cell, gridCol, rowStart, span) => {
+    const style = 'grid-column:' + gridCol + ';grid-row:' + rowStart + ' / span ' + span;
+    if (!cell || !cell.team) return '<span class="chip tbd" id="' + id + '" style="' + style + '"></span>';
+    const t = S.teams.get(cell.team);
+    return '<button class="chip' + (cell.manual ? ' manual' : '') + '" id="' + id + '" style="' + style + '"'
+      + ' data-pick="' + cell.click + '" data-team="' + esc(cell.team) + '" title="' + esc(cell.team) + '">'
+      + (t && t.logo ? '<img src="' + esc(t.logo) + '" alt="' + esc(cell.team) + '" loading="lazy">' : '')
+      + '</button>';
   };
 
-  const cols = bracketColumns();
-  $('bracket').innerHTML = cols.map((ns, ci) => {
-    const pairs = [];
-    if (ns.length === 1) pairs.push(ns);
-    else for (let i = 0; i < ns.length; i += 2) pairs.push(ns.slice(i, i + 2));
-    return '<div class="round"><h3>' + ROUND_NAMES[ci] + '</h3>'
-      + pairs.map((p) =>
-          '<div class="pair' + (p.length < 2 ? ' solo' : '') + '">' + p.map(koCard).join('') + '</div>'
-        ).join('')
-      + '</div>';
-  }).join('');
+  halves.forEach((r32s, h) => {
+    // Matches per column of this half, in tree order: R32(8) R16(4) QF(2) SF(1).
+    const colsM = [r32s];
+    for (let k = 1; k < 4; k++) {
+      const prev = colsM[k - 1]; const next = [];
+      for (let i = 0; i < prev.length; i += 2) next.push(PARENT[prev[i]]);
+      colsM.push(next);
+    }
+    // Column 0: the 16 participants; columns 1..4: each round's survivors.
+    const cells0 = [];
+    for (const m of r32s) {
+      const g = games.get(m);
+      cells0.push({ team: g.home, click: m }, { team: g.away, click: m });
+    }
+    const colCells = [cells0];
+    for (let k = 0; k < 4; k++) {
+      colCells.push(colsM[k].map((m) => {
+        const g = games.get(m);
+        return { team: g.winner, click: PARENT[m] || 104, manual: g.manual };
+      }));
+    }
+    colCells.forEach((cells, k) => {
+      const span = 32 / cells.length;
+      const gridCol = h === 0 ? k + 1 : 11 - k;
+      cells.forEach((cell, i) => html.push(chip('hc-' + h + '-' + k + '-' + i, cell, gridCol, i * span + 1, span)));
+    });
+  });
 
-  const final = games.get(104);
-  const champ = final && final.winner;
+  // Center: champion above the trophy.
+  const champ = games.get(104).winner;
   const champP = champ ? S.winnerProb.get(canonName(champ)) : null;
-  $('champ').innerHTML = champ
-    ? '<div class="champ"><span class="cup">🏆</span><br>' + flag(champ, 64)
-      + '<div class="t">' + esc(champ) + '</div>'
-      + (champP != null ? '<div class="s">Polymarket gives them <b>' + (champP * 100).toFixed(1) + '%</b> to lift the trophy</div>' : '')
-      + '<div class="s">' + (Object.keys(S.user.picks).length || Object.keys(S.user.order).length
-          ? 'Your bracket’s champion (market + ✋ your calls)'
-          : 'The market’s champion — untouched') + '</div></div>'
-    : '';
+  const ct = champ && S.teams.get(champ);
+  const touched = Object.keys(S.user.picks).length || Object.keys(S.user.order).length || S.user.thirds;
+  html.push('<div class="center-cell">'
+    + '<span class="chip" id="hc-champ">' + (ct && ct.logo ? '<img src="' + esc(ct.logo) + '" alt="">' : '') + '</span>'
+    + (champ ? '<span class="cname">' + esc(champ) + '</span>' : '')
+    + (champP != null ? '<span class="cpct">' + (champP * 100).toFixed(1) + '% to win it all</span>' : '')
+    + '<span class="cup">🏆</span>'
+    + '<span class="cpct">' + (touched ? 'your bracket' : 'the market’s bracket') + '</span>'
+    + '</div>');
+
+  $('bracket').innerHTML = html.join('');
+  drawWires();
 }
+
+// Orthogonal elbow connectors between rounds, drawn over chip positions.
+function drawWires() {
+  const wrap = $('bracket');
+  let svg = wrap.querySelector('svg.wires');
+  if (!svg) {
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'wires');
+    wrap.prepend(svg);
+  }
+  svg.setAttribute('viewBox', '0 0 ' + wrap.scrollWidth + ' ' + wrap.scrollHeight);
+  const mid = (el) => ({ x: el.offsetLeft + el.offsetWidth / 2, y: el.offsetTop + el.offsetHeight / 2, r: el.offsetWidth / 2 });
+  const get = (h, k, i) => document.getElementById('hc-' + h + '-' + k + '-' + i);
+  const seg = [];
+  const elbow = (a, b, dir) => {
+    const x1 = a.x + dir * (a.r + 2), x2 = b.x - dir * (b.r + 2), mx = (x1 + x2) / 2;
+    seg.push('M' + x1 + ' ' + a.y + ' H' + mx + ' V' + b.y + ' H' + x2);
+  };
+  for (let h = 0; h < 2; h++) {
+    const dir = h === 0 ? 1 : -1;
+    for (let k = 1; k <= 4; k++) {
+      for (let i = 0; i < (16 >> k); i++) {
+        const parent = get(h, k, i);
+        if (!parent) continue;
+        for (const ci of [2 * i, 2 * i + 1]) {
+          const child = get(h, k - 1, ci);
+          if (child) elbow(mid(child), mid(parent), dir);
+        }
+      }
+    }
+    const finalist = get(h, 4, 0);
+    const champEl = document.getElementById('hc-champ');
+    if (finalist && champEl) elbow(mid(finalist), mid(champEl), dir);
+  }
+  svg.innerHTML = '<path d="' + seg.join(' ') + '" fill="none" stroke="#3d4654" stroke-width="1.5" stroke-linecap="round"/>';
+}
+window.addEventListener('resize', () => { if ($('bracket').childElementCount) drawWires(); });
 
 /* ═══════════════════════ INTERACTIONS ═══════════════════════════════ */
 function orderOf(letter) { return tableFor(letter).map((r) => r.team); }
@@ -700,29 +777,48 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// Drag & drop between rows of the same group (desktop).
+// Reordering by dragging the ⠿ handle. Pointer Events cover mouse AND touch
+// (HTML5 drag-and-drop never fires on iOS), and capturing on the handle keeps
+// elementFromPoint usable to find the row under the finger.
 let dragInfo = null;
-document.addEventListener('dragstart', (e) => {
-  const row = e.target.closest('.trow'); if (!row) return;
-  dragInfo = { g: row.dataset.g, t: row.dataset.t };
-  e.dataTransfer.effectAllowed = 'move';
-});
-document.addEventListener('dragover', (e) => {
-  const row = e.target.closest('.trow');
-  if (row && dragInfo && row.dataset.g === dragInfo.g) { e.preventDefault(); row.classList.add('dragover'); }
-});
-document.addEventListener('dragleave', (e) => { const r = e.target.closest('.trow'); if (r) r.classList.remove('dragover'); });
-document.addEventListener('drop', (e) => {
-  const row = e.target.closest('.trow');
-  if (!row || !dragInfo || row.dataset.g !== dragInfo.g) return;
+const clearDragover = () => document.querySelectorAll('.trow.dragover').forEach((r) => r.classList.remove('dragover'));
+document.addEventListener('pointerdown', (e) => {
+  const grip = e.target.closest('.grip');
+  if (!grip) return;
+  const row = grip.closest('.trow');
+  dragInfo = { g: row.dataset.g, t: row.dataset.t, row };
+  row.classList.add('dragging');
+  if (grip.setPointerCapture) grip.setPointerCapture(e.pointerId);
   e.preventDefault();
-  const ord = orderOf(dragInfo.g);
-  const from = ord.indexOf(dragInfo.t), to = ord.indexOf(row.dataset.t);
-  if (from < 0 || to < 0 || from === to) return;
-  ord.splice(to, 0, ord.splice(from, 1)[0]);
-  S.user.order[dragInfo.g] = ord;
+});
+document.addEventListener('pointermove', (e) => {
+  if (!dragInfo) return;
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const over = el && el.closest('.trow');
+  clearDragover();
+  if (over && over.dataset.g === dragInfo.g && over.dataset.t !== dragInfo.t) over.classList.add('dragover');
+});
+document.addEventListener('pointerup', (e) => {
+  if (!dragInfo) return;
+  const d = dragInfo;
   dragInfo = null;
+  d.row.classList.remove('dragging');
+  clearDragover();
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const over = el && el.closest('.trow');
+  if (!over || over.dataset.g !== d.g || over.dataset.t === d.t) return;
+  const ord = orderOf(d.g);
+  const from = ord.indexOf(d.t), to = ord.indexOf(over.dataset.t);
+  if (from < 0 || to < 0) return;
+  ord.splice(to, 0, ord.splice(from, 1)[0]);
+  S.user.order[d.g] = ord;
   withFlip($('groups'), render);
+});
+document.addEventListener('pointercancel', () => {
+  if (!dragInfo) return;
+  dragInfo.row.classList.remove('dragging');
+  clearDragover();
+  dragInfo = null;
 });
 
 $('resetall').addEventListener('click', () => {
