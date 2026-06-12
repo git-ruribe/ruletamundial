@@ -103,8 +103,13 @@
     .trow.dragging { opacity: 0.55; }
     /* Drag handle: pointer-events drag works on iOS too (touch-action: none
        only here, so the rest of the row still scrolls the page normally). */
-    .grip { color: var(--muted); font-size: 0.8rem; cursor: grab; touch-action: none; text-align: center; }
-    .grip:active { cursor: grabbing; }
+    .grip {
+      color: var(--muted); font-size: 0.9rem; cursor: grab; text-align: center;
+      touch-action: none; -webkit-user-select: none; user-select: none;
+      -webkit-touch-callout: none;
+      padding: 6px 2px; margin: -6px 0; /* bigger finger target, same row height */
+    }
+    .grip:active { cursor: grabbing; color: var(--accent); }
     .trow .pos { font-weight: 800; font-size: 0.8rem; text-align: center; color: var(--muted); }
     .trow.p1 .pos, .trow.p2 .pos { color: var(--green); }
     .trow.p3 .pos { color: var(--amber); }
@@ -156,17 +161,17 @@
       column-gap: 4px; padding: 6px 2px;
     }
     svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
-    .chip {
+    .bracket .chip {
       position: relative; z-index: 1; place-self: center;
       width: 36px; height: 36px; border-radius: 50%; overflow: hidden;
       background: var(--panel2); border: 2px solid #3d4654; cursor: pointer; padding: 0;
       box-shadow: 0 2px 6px rgba(0,0,0,0.5);
       transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
     }
-    .chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .chip:hover { transform: scale(1.18); border-color: var(--accent); z-index: 2; }
-    .chip.manual { border-color: var(--accent); box-shadow: 0 0 10px rgba(255, 210, 63, 0.55); }
-    .chip.tbd { opacity: 0.3; cursor: default; }
+    .bracket .chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .bracket .chip:hover { transform: scale(1.18); border-color: var(--accent); z-index: 2; }
+    .bracket .chip.manual { border-color: var(--accent); box-shadow: 0 0 10px rgba(255, 210, 63, 0.55); }
+    .bracket .chip.tbd { opacity: 0.3; cursor: default; }
     .center-cell {
       grid-column: 6; grid-row: 1 / -1; place-self: center; z-index: 1;
       text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px;
@@ -820,6 +825,13 @@ document.addEventListener('pointercancel', () => {
   clearDragover();
   dragInfo = null;
 });
+// iOS belt-and-braces: while a drag is live, block the page scroll at the
+// touch level too. If Safari wins the gesture it fires pointercancel and the
+// drag silently dies — this keeps the pointer stream alive. Must be
+// non-passive, listeners are passive by default for touchmove.
+document.addEventListener('touchmove', (e) => {
+  if (dragInfo) e.preventDefault();
+}, { passive: false });
 
 $('resetall').addEventListener('click', () => {
   S.user = { order: {}, thirds: null, picks: {} };
