@@ -244,6 +244,7 @@
 const GAMMA = 'https://gamma-api.polymarket.com';
 const PROXY = 'https://wc-proxy.zcv25kyj7b.workers.dev';
 const SERIES_ID = '11433';
+const WINNER_SLUG = 'world-cup-winner'; // tournament-winner futures market
 const PAGE = 100, MAX_EVENTS = 2000;
 const GROUP_STAGE_END = '2026-06-28'; // group games run Jun 11–27
 const STORE_KEY = 'predictor-v1';
@@ -272,9 +273,25 @@ const S = {
   teams: new Map(),   // name -> {name, logo, abbr}
   matches: [],        // group-stage: {home, away, hs, as, prob, src('exact'|'ml'|'real'), when}
   groups: new Map(),  // letter -> [team names] (market order, recomputed)
+  winnerProb: new Map(), // canonical team name -> P(wins the tournament)
   user: { order: {}, thirds: null, picks: {} }, // persisted overrides
   exactCount: 0, mlCount: 0, realCount: 0, loadedAt: null,
 };
+
+// Team naming differs between the game series ("Korea Republic") and the
+// winner futures ("South Korea") — canonicalize before joining the two.
+const NAME_ALIAS = {
+  'korea republic': 'south korea',
+  'ir iran': 'iran',
+  'cote divoire': 'ivory coast',
+  'dr congo': 'congo dr',
+  'united states': 'usa',
+};
+function canonName(s) {
+  const n = String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+  return NAME_ALIAS[n] || n;
+}
 const $ = (id) => document.getElementById(id);
 const esc = (s) => { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; };
 const parseList = (v) => { if (Array.isArray(v)) return v; try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; } };
@@ -303,6 +320,24 @@ async function fetchSeries() {
     if (page.length < PAGE) break;
   }
   return out;
+}
+
+// Tournament-winner futures: P(lifts the trophy) per team. Decides knockout
+// ties — the team the global market rates higher advances. Placeholder
+// outcomes ("Team AM", "Other") and resolved/eliminated ones price at ~0.
+async function fetchWinnerOdds() {
+  try {
+    const arr = await api('/events?slug=' + WINNER_SLUG);
+    const ev = Array.isArray(arr) ? arr[0] : arr;
+    for (const m of (ev && ev.markets) || []) {
+      const title = (m.groupItemTitle || '').trim();
+      if (!title || title === 'Other' || /^Team [A-Z]{2}$/.test(title)) continue;
+      const outs = parseList(m.outcomes); const prices = parseList(m.outcomePrices);
+      const yi = outs.findIndex((o) => /^yes$/i.test(o));
+      const p = yi >= 0 ? Number(prices[yi]) || 0 : 0;
+      S.winnerProb.set(canonName(title), p);
+    }
+  } catch (e) { console.warn('winner odds unavailable, falling back to group strength', e); }
 }
 
 function isMatchEvent(ev) {
@@ -469,13 +504,22 @@ function buildBracket(tables, thirds) {
   for (const m of R32) games.set(m.n, { n: m.n, home: teamAt(m.home, m.n), away: teamAt(m.away, m.n) });
   for (const round of ROUNDS) for (const g of round.games) games.set(g.n, { n: g.n, from: [g.a, g.b] });
 
+  // Default tie winner: whoever the global winner-futures market rates
+  // higher; group-stage strength only breaks ties / fills gaps.
+  const favoured = (a, b) => {
+    const pa = S.winnerProb.get(canonName(a));
+    const pb = S.winnerProb.get(canonName(b));
+    if (pa != null && pb != null && pa !== pb) return pa > pb ? a : b;
+    return (strength.get(a) || 0) >= (strength.get(b) || 0) ? a : b;
+  };
+
   const order = [...R32.map((m) => m.n), ...ROUNDS.flatMap((r) => r.games.map((g) => g.n))];
   for (const n of order) {
     const g = games.get(n);
     if (g.from) { g.home = games.get(g.from[0]).winner || null; g.away = games.get(g.from[1]).winner || null; }
     const pick = S.user.picks[n];
     if (pick && (pick === g.home || pick === g.away)) { g.winner = pick; g.manual = true; }
-    else if (g.home && g.away) g.winner = (strength.get(g.home) || 0) >= (strength.get(g.away) || 0) ? g.home : g.away;
+    else if (g.home && g.away) g.winner = favoured(g.home, g.away);
     else g.winner = g.home || g.away || null;
   }
   return games;
@@ -519,6 +563,7 @@ function renderSeedbar() {
     '<span class="chip">📊 exact score: <b>' + S.exactCount + '</b></span>'
     + '<span class="chip">≈ moneyline: <b>' + S.mlCount + '</b></span>'
     + (S.realCount ? '<span class="chip">✅ played: <b>' + S.realCount + '</b></span>' : '')
+    + (S.winnerProb.size ? '<span class="chip">🏆 winner odds: <b>' + S.winnerProb.size + ' teams</b></span>' : '')
     + '<span class="chip">✋ your edits: <b>' + edits + '</b></span>'
     + (S.loadedAt ? '<span class="chip">updated <b>' + S.loadedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</b></span>' : '');
 }
@@ -608,9 +653,11 @@ function renderBracket(games) {
 
   const final = games.get(104);
   const champ = final && final.winner;
+  const champP = champ ? S.winnerProb.get(canonName(champ)) : null;
   $('champ').innerHTML = champ
     ? '<div class="champ"><span class="cup">🏆</span><br>' + flag(champ, 64)
       + '<div class="t">' + esc(champ) + '</div>'
+      + (champP != null ? '<div class="s">Polymarket gives them <b>' + (champP * 100).toFixed(1) + '%</b> to lift the trophy</div>' : '')
       + '<div class="s">' + (Object.keys(S.user.picks).length || Object.keys(S.user.order).length
           ? 'Your bracket’s champion (market + ✋ your calls)'
           : 'The market’s champion — untouched') + '</div></div>'
@@ -693,7 +740,7 @@ function load() {
 async function boot() {
   load();
   try {
-    const events = await fetchSeries();
+    const [events] = await Promise.all([fetchSeries(), fetchWinnerOdds()]);
     buildModel(events);
     if (!S.groups.size || S.matches.length < 30) throw new Error('incomplete data (' + S.matches.length + ' matches)');
     S.loadedAt = new Date();
