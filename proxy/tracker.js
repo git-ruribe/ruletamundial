@@ -115,13 +115,23 @@ async function stats(request, env, ctx, cors) {
   const dayAgo = Math.floor(Date.now() / 1000) - 86400;
   let payload;
   try {
+    // Legacy FlagCounter totals imported into a `baseline` table merge into
+    // the all-time numbers so the medal board doesn't start from zero. The
+    // table is optional — without it, live hits alone are served.
+    //   CREATE TABLE IF NOT EXISTS baseline (country TEXT PRIMARY KEY, n INTEGER NOT NULL);
+    let baseTotal = 0; const baseByCountry = new Map();
+    try {
+      const base = await env.DB.prepare('SELECT country c, n FROM baseline').all();
+      for (const r of base.results || []) { baseByCountry.set(r.c, r.n); baseTotal += r.n; }
+    } catch { /* no baseline table yet */ }
+
     const [total, last24, countries, refs, pages] = await Promise.all([
       env.DB.prepare("SELECT COUNT(*) n FROM hits WHERE evt = 'view'").first(),
       env.DB.prepare("SELECT COUNT(*) n FROM hits WHERE evt = 'view' AND ts >= ?1")
         .bind(dayAgo).first(),
       env.DB.prepare(
         "SELECT country c, COUNT(*) n, SUM(ts >= ?1) d FROM hits WHERE evt = 'view' " +
-        'GROUP BY country ORDER BY n DESC LIMIT 150'
+        'GROUP BY country ORDER BY n DESC LIMIT 250'
       ).bind(dayAgo).all(),
       env.DB.prepare(
         "SELECT ref r, COUNT(*) n FROM hits WHERE evt = 'view' AND ref != '' " +
@@ -132,10 +142,20 @@ async function stats(request, env, ctx, cors) {
         'GROUP BY page ORDER BY n DESC LIMIT 30'
       ).all(),
     ]);
+
+    const merged = new Map();
+    for (const r of countries.results || []) merged.set(r.c, { c: r.c, n: r.n, d: r.d || 0 });
+    for (const [c, n] of baseByCountry) {
+      const row = merged.get(c) || { c, n: 0, d: 0 };
+      row.n += n;
+      merged.set(c, row);
+    }
+    const list = [...merged.values()].sort((a, b) => b.n - a.n).slice(0, 150);
+
     payload = {
-      total: total ? total.n : 0,
+      total: (total ? total.n : 0) + baseTotal,
       last24h: last24 ? last24.n : 0,
-      countries: countries.results || [],   // [{c:'MX', n: all-time, d: last 24h}]
+      countries: list,                      // [{c:'MX', n: all-time, d: last 24h}]
       refs: refs.results || [],
       pages: pages.results || [],
       generatedAt: new Date().toISOString(),
