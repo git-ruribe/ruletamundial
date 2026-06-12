@@ -1599,6 +1599,12 @@ function buildStats() {
       '/viewers_0/labels_1/pageviews_1/flags_1/percent_0/';
   }
 
+  // Our own live medal board (first-party tracker, gonnafind.com/flags).
+  const board = document.createElement('a');
+  board.href = '/flags/';
+  board.className = 'stats-board-link';
+  board.textContent = '🏅 Full visitor medal board →';
+
   if (src) {
     const img = new Image();
     img.src = src;
@@ -1617,16 +1623,17 @@ function buildStats() {
       'countries. It processes your IP address to derive your country; it is ' +
       'not used to identify you and no data is sold. Browsing implies ' +
       'acceptance of this anonymous, aggregate measurement.';
-    body.replaceChildren(link, privacy);
+    body.replaceChildren(board, link, privacy);
   } else {
-    body.innerHTML =
+    body.replaceChildren(board);
+    body.insertAdjacentHTML('beforeend',
       '<p class="stats-setup">To show visits and countries here:<br>' +
       '1. Create a free counter at ' +
       '<a href="https://flagcounter.com" target="_blank" rel="noopener">flagcounter.com</a>.<br>' +
       '2. Copy your counter <strong>code</strong> (the part of the image URL ' +
       'after <code>/count2/</code>).<br>' +
       '3. Paste it into <code>CONFIG.analytics.flagCounter.code</code> in ' +
-      '<code>app.js</code>.</p>';
+      '<code>app.js</code>.</p>');
   }
 }
 
