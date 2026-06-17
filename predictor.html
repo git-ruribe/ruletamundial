@@ -865,26 +865,47 @@ function load() {
   catch { /* corrupt/absent */ }
 }
 
+let liveRefreshTimer = null;
+
 async function boot() {
   load();
   try {
     const [events] = await Promise.all([fetchSeries(), fetchWinnerOdds()]);
     buildModel(events);
-    if (!S.groups.size || S.matches.length < 30) throw new Error('incomplete data (' + S.matches.length + ' matches)');
+    if (!S.groups.size || S.matches.length < 30) throw new Error(‘incomplete data (‘ + S.matches.length + ‘ matches)’);
     S.loadedAt = new Date();
-    $('loading').hidden = true;
-    $('groups-section').hidden = false;
-    $('thirds-section').hidden = false;
-    $('bracket-section').hidden = false;
+    $(‘loading’).hidden = true;
+    $(‘groups-section’).hidden = false;
+    $(‘thirds-section’).hidden = false;
+    $(‘bracket-section’).hidden = false;
     render();
+    scheduleLiveRefresh(events);
   } catch (err) {
     console.error(err);
-    $('loading').hidden = true;
-    const el = $('error');
+    $(‘loading’).hidden = true;
+    const el = $(‘error’);
     el.hidden = false;
-    el.innerHTML = '<strong>Couldn’t load Polymarket data.</strong><br>' + esc(err.message) + '<br><br><button class="iconbtn" onclick="location.reload()">Retry</button>';
+    el.innerHTML = ‘<strong>Couldn’t load Polymarket data.</strong><br>’ + esc(err.message) + ‘<br><br><button class="iconbtn" onclick="location.reload()">Retry</button>’;
   }
 }
+
+// While any group-stage game is live, re-fetch every 60s so the standings
+// stay current. Stop polling once no live games remain.
+function scheduleLiveRefresh(events) {
+  if (liveRefreshTimer) { clearTimeout(liveRefreshTimer); liveRefreshTimer = null; }
+  const hasLive = (events || []).some((ev) => ev.live === true);
+  if (!hasLive) return; // nothing live, no need to poll
+  liveRefreshTimer = setTimeout(async () => {
+    liveRefreshTimer = null;
+    try {
+      const [events] = await Promise.all([fetchSeries(), fetchWinnerOdds()]);
+      buildModel(events);
+      render();
+      scheduleLiveRefresh(events);
+    } catch { scheduleLiveRefresh([]); } // retry in 60s even on error
+  }, 60000);
+}
+
 boot();
 </script>
 
