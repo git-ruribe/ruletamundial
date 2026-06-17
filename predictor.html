@@ -314,8 +314,12 @@ const parseList = (v) => { if (Array.isArray(v)) return v; try { const p = JSON.
 /* ═════════════════════════ DATA LAYER ═══════════════════════════════ */
 let base = GAMMA;
 async function api(path) {
+  // Always bypass the browser HTTP cache so the 60s live-refresh sees fresh data,
+  // not a heuristically-cached response. Append _t as a URL cache-buster too.
+  const sep = path.includes('?') ? '&' : '?';
+  const cacheBusted = path + sep + '_t=' + Date.now();
   const get = async (b) => {
-    const r = await fetch(b + path, { headers: { accept: 'application/json' } });
+    const r = await fetch(b + cacheBusted, { cache: 'no-store', headers: { accept: 'application/json' } });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   };
