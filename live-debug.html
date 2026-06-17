@@ -55,7 +55,22 @@ a { color:var(--accent); }
   <div id="matches"></div>
   <div id="empty" class="empty">Buscando partidos en vivo…</div>
 
-  <h2 style="font-size:0.9rem;margin:14px 0 6px;color:var(--mu)">Bitácora</h2>
+  <h2 style="font-size:0.95rem;margin:18px 0 6px">🔌 WebSocket (CLOB market)</h2>
+  <p class="sub">Se suscribe a los tokens del partido en vivo y escucha el WSS de Polymarket. Comprueba si el marcador llega por aquí (push) o solo por Gamma (REST).</p>
+  <div class="bar">
+    <span id="ws-state" class="src">desconectado</span>
+    <span class="meta">mensajes: <b id="ws-count">0</b> · <b id="ws-types">—</b></span>
+  </div>
+  <div class="match">
+    <div class="cell" style="border:none;background:transparent;padding:0">
+      <div class="k">¿algún mensaje trae marcador? (score/elapsed/period/half)</div>
+      <div class="v" id="ws-verdict">esperando datos…</div>
+    </div>
+  </div>
+  <h2 style="font-size:0.85rem;margin:10px 0 6px;color:var(--mu)">Últimos mensajes WSS (crudos)</h2>
+  <div id="ws-log" class="log">—</div>
+
+  <h2 style="font-size:0.9rem;margin:14px 0 6px;color:var(--mu)">Bitácora REST</h2>
   <div id="log" class="log"></div>
 
 <script>
@@ -184,6 +199,80 @@ async function tick() {
       ${pcRows}
     </div>`;
   }).join('');
+
+  ensureWss(live);
+}
+
+/* ───────────────────────── WebSocket inspector ───────────────────────── */
+const WSS = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
+const ws = { sock: null, tokens: '', count: 0, types: {}, keep: null };
+const SCORE_KEYS = /score|elapsed|period|half|minute|clock|"live"/i;
+
+function tokensOf(live) {
+  // Yes-outcome CLOB token of each moneyline market of the first live match.
+  const ev = live.find((e) => (e.markets || []).some((m) => m.sportsMarketType === 'moneyline'));
+  if (!ev) return [];
+  const out = [];
+  for (const m of ev.markets || []) {
+    if (m.sportsMarketType !== 'moneyline' || !m.clobTokenIds) continue;
+    try { const ids = JSON.parse(m.clobTokenIds); if (ids[0]) out.push(String(ids[0])); } catch {}
+  }
+  return out;
+}
+
+function ensureWss(live) {
+  const tokens = tokensOf(live);
+  if (!tokens.length) return;
+  const key = tokens.join(',');
+  if (ws.sock && ws.tokens === key && ws.sock.readyState <= 1) return; // already on it
+  openWss(tokens, key);
+}
+
+function openWss(tokens, key) {
+  try { if (ws.sock) ws.sock.close(); } catch {}
+  if (ws.keep) clearInterval(ws.keep);
+  ws.count = 0; ws.types = {}; ws.tokens = key;
+  $('ws-state').className = 'src'; $('ws-state').textContent = 'conectando…';
+  let sock;
+  try { sock = new WebSocket(WSS); } catch (e) {
+    $('ws-state').className = 'src err'; $('ws-state').textContent = 'WSS bloqueado';
+    return;
+  }
+  ws.sock = sock;
+  sock.onopen = () => {
+    $('ws-state').className = 'src gamma'; $('ws-state').textContent = 'conectado · ' + tokens.length + ' tokens';
+    sock.send(JSON.stringify({ type: 'market', assets_ids: tokens }));
+    ws.keep = setInterval(() => { if (sock.readyState === 1) sock.send('PING'); }, 5000);
+    log('WSS conectado, ' + tokens.length + ' tokens.');
+  };
+  sock.onmessage = (e) => {
+    if (typeof e.data !== 'string' || e.data === 'PONG' || e.data === 'PING') return;
+    ws.count++; $('ws-count').textContent = ws.count;
+    let arr;
+    try { arr = JSON.parse(e.data); } catch { return; }
+    arr = Array.isArray(arr) ? arr : [arr];
+    for (const msg of arr) {
+      const ty = (msg && (msg.event_type || msg.type)) || '?';
+      ws.types[ty] = (ws.types[ty] || 0) + 1;
+    }
+    $('ws-types').textContent = Object.entries(ws.types).map(([k, v]) => k + ':' + v).join(' · ');
+    // Verdict: does ANY raw message contain score-like keys?
+    if (SCORE_KEYS.test(e.data) && /score|elapsed|period|half|minute|clock/i.test(e.data)) {
+      $('ws-verdict').textContent = '⚠️ SÍ — el WSS trae campos de marcador (revisar abajo)';
+      $('ws-verdict').style.color = 'var(--warn)';
+    } else if ($('ws-verdict').textContent === 'esperando datos…') {
+      $('ws-verdict').textContent = '❌ NO — solo precios (book/price_change/last_trade_price)';
+      $('ws-verdict').style.color = 'var(--mu)';
+    }
+    // Show the latest raw message, truncated.
+    $('ws-log').textContent = e.data.slice(0, 1200) + (e.data.length > 1200 ? '…' : '');
+  };
+  sock.onclose = () => {
+    if (ws.sock !== sock) return;
+    $('ws-state').className = 'src err'; $('ws-state').textContent = 'cerrado';
+    if (ws.keep) clearInterval(ws.keep);
+  };
+  sock.onerror = () => { $('ws-state').className = 'src err'; $('ws-state').textContent = 'error WSS'; };
 }
 
 function schedule() {
