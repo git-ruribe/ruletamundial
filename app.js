@@ -584,14 +584,21 @@ async function loadMatches() {
   if (include.size) events = events.filter((ev) => include.has(ev.slug));
   if (exclude.size) events = events.filter((ev) => !exclude.has(ev.slug));
 
-  // Dedupe by event id.
+  // Dedupe by event id. A single malformed event must never abort the whole
+  // refresh — otherwise one bad market (e.g. a half-result event that appears
+  // mid-game) would freeze all live updates silently while refreshLive's catch
+  // swallows the throw. Guard each event independently.
   const seen = new Set();
   const matches = [];
   for (const ev of events) {
     if (seen.has(ev.id)) continue;
     seen.add(ev.id);
-    const match = eventToMatch(ev);
-    if (match) matches.push(match);
+    try {
+      const match = eventToMatch(ev);
+      if (match) matches.push(match);
+    } catch (e) {
+      console.warn('eventToMatch failed for', ev && ev.slug, e);
+    }
   }
 
   // Sort by closing date — soonest (next up) first.
@@ -1390,6 +1397,14 @@ async function init() {
     selectMatch(defaultMatchIndex());
     scheduleLive();
     syncLiveStream();
+    // Mobile browsers throttle/suspend timers in backgrounded tabs, so the 30s
+    // poll can stall while you watch the game elsewhere. Force a fresh fetch
+    // the moment the tab regains focus so the score is never stale on return.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      if (state.matches.some((m) => isLive(m) || matchEnded(m))) refreshLive();
+      syncLiveStream();
+    });
   } catch (err) {
     console.error(err);
     el.select.innerHTML = '<option>Unavailable</option>';
@@ -1696,7 +1711,8 @@ async function refreshLive() {
   const prevSections = state.current ? state.current.sections : null;
   try {
     await loadMatches();
-  } catch {
+  } catch (e) {
+    console.warn('refreshLive: loadMatches failed, keeping current data', e);
     return; // transient network error — keep showing what we have
   }
   if (!state.matches.length) return;
