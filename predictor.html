@@ -133,6 +133,7 @@
     .gm { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 0.74rem; color: var(--muted); padding: 2px 4px; }
     .gm .sc { font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; background: var(--panel2); border-radius: 6px; padding: 0 7px; }
     .gm .sc.real { color: var(--green); }
+    .gm .sc.live { color: #f85149; }
     .gm .pr { font-size: 0.66rem; min-width: 48px; text-align: right; }
 
     /* ─────────────────── THIRDS STRIP ─────────────────────── */
@@ -397,16 +398,27 @@ function buildModel(events) {
     const ctx = (ev.eventMetadata && ev.eventMetadata.context_description) || '';
     const gm = ctx.match(/group\s+([A-L])\b/i);
 
-    // Played games take their real score from the resolved exact-score market.
-    // Future games are predicted from the moneyline (1X2) instead: the modal
-    // exact score (often 1-1) can out-price every individual win scoreline
-    // even when a win is the likelier outcome overall, so argmax-of-scores
-    // over-predicts draws. Exact scores stay only as a last-resort fallback.
+    // Priority order:
+    //  1. Resolved exact-score market → the real final result.
+    //  2. Live score from the event feed (ev.score "H-A", ev.live === true) →
+    //     shows current score in the standings while the game is in progress.
+    //  3. Moneyline 1X2 argmax → prediction for upcoming / untracked games.
+    //  4. Exact-score argmax fallback (draws over-predicted; last resort only).
     const exact = exactByParent.get(String(ev.id));
     const best = exact ? scoreFromExact(exact) : null;
     let rec = null;
-    if (best && best.resolved) { rec = { hs: best.hs, as: best.as, prob: 1, src: 'real' }; S.realCount++; }
-    else {
+    if (best && best.resolved) {
+      rec = { hs: best.hs, as: best.as, prob: 1, src: 'real' };
+      S.realCount++;
+    } else if (ev.live === true && typeof ev.score === 'string') {
+      // In-progress: show actual live score so standings reflect the game state.
+      const lm = ev.score.match(/^(\d+)\s*-\s*(\d+)$/);
+      if (lm) {
+        rec = { hs: Number(lm[1]), as: Number(lm[2]), prob: 0.5, src: 'live' };
+        S.mlCount++;
+      }
+    }
+    if (!rec) {
       const ml = (ev.markets || []).filter((m) => m.sportsMarketType === 'moneyline');
       let top = null;
       for (const m of ml) {
@@ -577,10 +589,12 @@ function render() {
 }
 
 function renderSeedbar() {
+  const liveCount = S.matches.filter((m) => m.src === 'live').length;
   const edits = Object.keys(S.user.order).length + Object.keys(S.user.picks).length + (S.user.thirds ? 1 : 0);
   $('seedbar').innerHTML =
     (S.realCount ? '<span class="chip">✅ played: <b>' + S.realCount + '</b></span>' : '')
-    + '<span class="chip">📊 match odds: <b>' + S.mlCount + '</b></span>'
+    + (liveCount ? '<span class="chip">🔴 live now: <b>' + liveCount + '</b></span>' : '')
+    + '<span class="chip">📊 match odds: <b>' + (S.mlCount - liveCount) + '</b></span>'
     + (S.exactCount ? '<span class="chip">≈ exact score: <b>' + S.exactCount + '</b></span>' : '')
     + (S.winnerProb.size ? '<span class="chip">🏆 winner odds: <b>' + S.winnerProb.size + ' teams</b></span>' : '')
     + '<span class="chip">✋ your edits: <b>' + edits + '</b></span>'
@@ -612,9 +626,9 @@ function renderGroups(tables) {
       }).join('')
       + '<div class="gmatches">' + gms.map((m) =>
           '<div class="gm"><span>' + esc(short(m.home)) + '</span>'
-          + '<span class="sc' + (m.src === 'real' ? ' real' : '') + '">' + m.hs + ' - ' + m.as + '</span>'
+          + '<span class="sc' + (m.src === 'real' ? ' real' : m.src === 'live' ? ' live' : '') + '">' + m.hs + ' - ' + m.as + '</span>'
           + '<span>' + esc(short(m.away)) + '</span>'
-          + '<span class="pr">' + (m.src === 'real' ? 'FT ✓' : (m.prob * 100).toFixed(0) + '%') + '</span></div>'
+          + '<span class="pr">' + (m.src === 'real' ? 'FT ✓' : m.src === 'live' ? '🔴' : (m.prob * 100).toFixed(0) + '%') + '</span></div>'
         ).join('') + '</div>'
       + '</div>';
   }).join('');
