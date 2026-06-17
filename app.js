@@ -21,6 +21,10 @@ const CONFIG = {
   // poll below stays as reconciliation and as the fallback where Polymarket
   // is geo-blocked (the WSS is blocked in the same regions as the REST API).
   clobWss: 'wss://ws-subscriptions-clob.polymarket.com/ws/market',
+  // Public sports stream: pushes live score/period/elapsed/ended for ALL active
+  // games (no auth, no subscription). We filter by gameId to our matches. This
+  // makes the scoreline real-time instead of waiting for the 30s REST poll.
+  sportsWss: 'wss://sports-api.polymarket.com/ws',
   // Fallback proxy for regions where Polymarket is geo-blocked (e.g. Switzerland).
   // Deploy proxy/worker.js to Cloudflare and paste its URL here (no trailing
   // slash). Leave '' to disable.
@@ -605,6 +609,9 @@ async function loadMatches() {
   matches.sort((a, b) => endTime(a) - endTime(b));
 
   state.matches = matches;
+  // Re-point the sports-feed gameId index at the freshly rebuilt match objects
+  // so live score pushes keep updating the right ones after every REST refresh.
+  indexSportsMatches();
   state.lastUpdated = Date.now();
   renderUpdated();
   return matches;
@@ -1397,6 +1404,7 @@ async function init() {
     selectMatch(defaultMatchIndex());
     scheduleLive();
     syncLiveStream();
+    syncSportsStream(); // real-time scores via the sports feed
     // Mobile browsers throttle/suspend timers in backgrounded tabs, so the 30s
     // poll can stall while you watch the game elsewhere. Force a fresh fetch
     // the moment the tab regains focus so the score is never stale on return.
@@ -1404,6 +1412,7 @@ async function init() {
       if (document.visibilityState !== 'visible') return;
       if (state.matches.some((m) => isLive(m) || matchEnded(m))) refreshLive();
       syncLiveStream();
+      syncSportsStream();
     });
   } catch (err) {
     console.error(err);
@@ -1431,6 +1440,7 @@ function scheduleLive() {
 async function onLiveTick() {
   refreshLiveLabels(); // a match may have just kicked off — update badges
   syncLiveStream(); // open/close the WSS as matches enter/leave their window
+  syncSportsStream(); // open/close the sports score feed likewise
   if (state.spinning) return;
   // Keep reconciling while anything is live OR ended-but-unresolved, so we
   // notice when Polymarket finally closes a finished match's market.
@@ -1564,6 +1574,114 @@ function scheduleStreamReconnect() {
     stream.reconnectTimer = null;
     syncLiveStream();
   }, delay);
+}
+
+/* ----------------------- LIVE SCORE STREAM (Sports WSS) ------------------ */
+// Polymarket's sports feed (wss://sports-api.polymarket.com/ws) pushes
+// score/period/elapsed/live/ended for ALL active games — no auth, no
+// subscription. We connect while any match is live, filter messages to our
+// matches by gameId, and update the scoreline in real time. The 30s REST poll
+// stays as the fallback (and supplies the price-change fields the model needs).
+const sports = {
+  ws: null,
+  keepaliveTimer: null,
+  reconnectTimer: null,
+  retry: 0,
+  byGame: new Map(), // gameId(String) -> match
+};
+
+// (Re)index the live matches by gameId so message lookup is O(1).
+function indexSportsMatches() {
+  sports.byGame.clear();
+  for (const m of state.matches) {
+    if (m.gameId != null) sports.byGame.set(String(m.gameId), m);
+  }
+}
+
+// Open/close the sports stream to mirror whether anything is live.
+function syncSportsStream() {
+  if (typeof WebSocket === 'undefined') return;
+  const anyLive = state.matches.some((m) => isLive(m));
+  if (!anyLive) { closeSportsStream(); return; }
+  indexSportsMatches();
+  if (sports.ws && sports.ws.readyState <= WebSocket.OPEN) return; // already up
+  openSportsStream();
+}
+
+function openSportsStream() {
+  closeSportsStream();
+  let ws;
+  try { ws = new WebSocket(CONFIG.sportsWss); } catch { return; }
+  sports.ws = ws;
+  ws.onopen = () => { sports.retry = 0; }; // server pings; we reply PONG reactively
+  ws.onmessage = (e) => handleSportsMessage(e.data);
+  ws.onclose = () => {
+    if (sports.ws !== ws) return;
+    sports.ws = null;
+    scheduleSportsReconnect();
+  };
+  ws.onerror = () => { try { ws.close(); } catch { /* ignore */ } };
+}
+
+function closeSportsStream() {
+  if (sports.reconnectTimer) { clearTimeout(sports.reconnectTimer); sports.reconnectTimer = null; }
+  if (sports.keepaliveTimer) { clearInterval(sports.keepaliveTimer); sports.keepaliveTimer = null; }
+  const ws = sports.ws;
+  sports.ws = null;
+  if (ws) { ws.onclose = null; try { ws.close(); } catch { /* ignore */ } }
+}
+
+function scheduleSportsReconnect() {
+  if (sports.reconnectTimer) return;
+  const delay = Math.min(30000, 1000 * 2 ** sports.retry++);
+  sports.reconnectTimer = setTimeout(() => {
+    sports.reconnectTimer = null;
+    syncSportsStream();
+  }, delay);
+}
+
+function handleSportsMessage(data) {
+  if (typeof data !== 'string') return;
+  // The server pings to keep the socket alive; reply pong.
+  if (data === 'PING' || data === 'ping') { try { sports.ws.send('PONG'); } catch { /* ignore */ } return; }
+  let parsed;
+  try { parsed = JSON.parse(data); } catch { return; }
+  const msgs = Array.isArray(parsed) ? parsed : [parsed];
+  let currentTouched = false;
+
+  for (const msg of msgs) {
+    if (!msg || msg.gameId == null) continue;
+    const m = sports.byGame.get(String(msg.gameId));
+    if (!m) continue; // not one of our World Cup matches
+    const es = msg.eventState || msg;
+
+    // Score "H-A" (soccer); ignore set-style scores from other sports.
+    const sc = String(es.score != null ? es.score : msg.score || '').match(/^(\d+)\s*-\s*(\d+)$/);
+    if (sc) m.score = { home: Number(sc[1]), away: Number(sc[2]) };
+
+    const elapsedRaw = es.elapsed != null ? es.elapsed : msg.elapsed;
+    if (elapsedRaw != null && elapsedRaw !== '') {
+      const n = parseInt(String(elapsedRaw), 10); // "45", "45+2", "45:00" → 45
+      if (Number.isFinite(n)) { m.elapsed = n; m.elapsedAt = Date.now(); }
+    }
+
+    const pd = es.period != null ? es.period : msg.period;
+    if (pd != null) m.period = String(pd);
+
+    const live = es.live != null ? es.live : msg.live;
+    const ended = es.ended != null ? es.ended : msg.ended;
+    if (typeof live === 'boolean') m.live = live;
+    if (typeof ended === 'boolean') m.ended = ended;
+
+    if (m === state.current) currentTouched = true;
+  }
+
+  if (currentTouched && !state.spinning) {
+    renderMatchInfo();
+    updateLiveBadge();
+    // A live↔ended transition may need the price stream started/stopped.
+    syncLiveStream();
+  }
 }
 
 // Best bid/ask from a book snapshot side (levels arrive in no fixed order).
