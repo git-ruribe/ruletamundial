@@ -1686,11 +1686,13 @@ function handleSportsMessage(data) {
 
   if (currentTouched && !state.spinning) {
     renderMatchInfo();
-    updateLiveBadge();
     if (goalScored) flashGoalScore();
     // A live↔ended transition may need the price stream started/stopped.
     syncLiveStream();
   }
+  // Always refresh dropdown labels so 🔴→🏁 transitions are instant, even for
+  // matches that aren't currently selected.
+  refreshLiveLabels();
 }
 
 // Brief gold flash on the score card when Sports WSS confirms a new goal.
@@ -1827,10 +1829,12 @@ function applyStreamPrices() {
 function renderStreamStatus() {
   const m = state.current;
   if (!m || !isLive(m) || !streamActive()) return;
+  const liveCount = state.matches.filter(isLive).length;
   const at = new Date().toLocaleTimeString([], {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
-  setStatus(`${state.matches.length} matches · 🔴 streaming @ ${at}`, 'ok');
+  const liveStr = liveCount > 1 ? `${liveCount} live · ` : '';
+  setStatus(`${liveStr}${state.matches.length} matches · 🔴 streaming @ ${at}`, 'ok');
 }
 
 // 1s ticker while connected: advance the clock and keep the footer in
