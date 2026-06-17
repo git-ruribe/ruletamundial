@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Live Debug — gonnafind</title>
+<style>
+:root { --bg:#0d1117; --card:#161b22; --bd:#30363d; --tx:#e6edf3; --mu:#8b949e;
+  --ok:#3fb950; --warn:#ffd23f; --err:#f85149; --accent:#58a6ff; }
+* { box-sizing:border-box; margin:0; padding:0; }
+html { color-scheme:dark; }
+body { background:var(--bg); color:var(--tx); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  padding:14px; max-width:780px; margin:0 auto; }
+h1 { font-size:1.15rem; margin-bottom:4px; }
+.sub { color:var(--mu); font-size:0.82rem; margin-bottom:12px; }
+.bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+button { background:var(--card); color:var(--accent); border:1px solid var(--bd);
+  border-radius:8px; padding:8px 14px; font-size:0.9rem; font-weight:600; cursor:pointer; }
+button:hover { border-color:var(--accent); }
+.meta { color:var(--mu); font-size:0.8rem; }
+.meta b { color:var(--tx); }
+.src { font-size:0.78rem; padding:2px 8px; border-radius:999px; border:1px solid var(--bd); }
+.src.gamma { color:var(--ok); } .src.proxy { color:var(--warn); } .src.err { color:var(--err); }
+.match { background:var(--card); border:1px solid var(--bd); border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+.match h2 { font-size:1rem; margin-bottom:8px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:8px; }
+.cell { background:var(--bg); border:1px solid var(--bd); border-radius:8px; padding:7px 9px; }
+.cell .k { color:var(--mu); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.04em; }
+.cell .v { font-size:1.05rem; font-weight:700; font-variant-numeric:tabular-nums; word-break:break-word; }
+.cell.live .v { color:var(--ok); } .cell.changed { animation:flash 1.2s ease; border-color:var(--warn); }
+@keyframes flash { 0%{background:rgba(255,210,63,0.25);} 100%{background:var(--bg);} }
+.flags { display:flex; gap:6px; align-items:center; margin:8px 0; font-weight:700; }
+.flags img { width:24px; height:18px; object-fit:cover; border-radius:3px; }
+.pc { color:var(--mu); font-size:0.78rem; margin-top:8px; }
+.pc b { color:var(--tx); }
+.log { background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:10px 12px;
+  font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--mu);
+  max-height:200px; overflow:auto; white-space:pre-wrap; word-break:break-word; }
+.empty { color:var(--mu); padding:30px 0; text-align:center; }
+a { color:var(--accent); }
+</style>
+</head>
+<body>
+  <h1>🛰 Live Debug</h1>
+  <p class="sub">Lee <code>/events?series_id=11433</code> con anti-caché y muestra solo los campos del feed en vivo. Úsalo con un partido en curso para ver si el web service entrega datos frescos.</p>
+
+  <div class="bar">
+    <button id="toggle">⏸ Pausar</button>
+    <button id="now">↻ Ahora</button>
+    <span id="src" class="src">—</span>
+    <span class="meta">cada <b id="iv">10</b>s · fetch #<b id="n">0</b> · <b id="when">—</b></span>
+  </div>
+
+  <div id="matches"></div>
+  <div id="empty" class="empty">Buscando partidos en vivo…</div>
+
+  <h2 style="font-size:0.9rem;margin:14px 0 6px;color:var(--mu)">Bitácora</h2>
+  <div id="log" class="log"></div>
+
+<script>
+'use strict';
+const GAMMA = 'https://gamma-api.polymarket.com';
+const PROXY = 'https://wc-proxy.zcv25kyj7b.workers.dev';
+const SERIES = '11433';
+const INTERVAL = 10000;
+const LIVE_WINDOW = 3 * 60 * 60 * 1000;
+
+const $ = (id) => document.getElementById(id);
+let timer = null, count = 0, running = true;
+const prev = new Map();          // event id -> last {score, elapsed, period, live}
+const logLines = [];
+
+function log(msg) {
+  const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  logLines.unshift(`[${t}] ${msg}`);
+  if (logLines.length > 60) logLines.pop();
+  $('log').textContent = logLines.join('\n');
+}
+
+async function fetchEvents() {
+  const qs = `?closed=false&limit=100&offset=0&order=endDate&ascending=true&series_id=${SERIES}&_t=${Date.now()}`;
+  // Try direct Gamma first, then the proxy — report which one answered.
+  try {
+    const r = await fetch(GAMMA + '/events' + qs, { cache:'no-store', headers:{accept:'application/json'} });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    $('src').className = 'src gamma'; $('src').textContent = 'Gamma directo';
+    return await r.json();
+  } catch (e1) {
+    try {
+      const r = await fetch(PROXY + '/events' + qs, { cache:'no-store', headers:{accept:'application/json'} });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      $('src').className = 'src proxy'; $('src').textContent = 'Proxy CF';
+      return await r.json();
+    } catch (e2) {
+      $('src').className = 'src err'; $('src').textContent = 'Sin conexión';
+      log('ERROR: ' + e1.message + ' / ' + e2.message);
+      return null;
+    }
+  }
+}
+
+function isLiveEv(ev) {
+  if (ev.live === true) return true;
+  if (ev.ended === true) return false;
+  const s = ev.startTime ? Date.parse(ev.startTime) : NaN;
+  if (Number.isNaN(s)) return false;
+  const now = Date.now();
+  return now >= s && now < s + LIVE_WINDOW;
+}
+
+function cell(k, v, opts = {}) {
+  const cls = 'cell' + (opts.live ? ' live' : '') + (opts.changed ? ' changed' : '');
+  return `<div class="${cls}"><div class="k">${k}</div><div class="v">${v == null || v === '' ? '—' : v}</div></div>`;
+}
+
+function pcField(m, name) {
+  const v = m[name];
+  return v == null ? '—' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + 'pp';
+}
+
+async function tick() {
+  count++; $('n').textContent = count;
+  $('when').textContent = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const data = await fetchEvents();
+  if (!data) return;
+
+  const live = data.filter(isLiveEv);
+  if (!live.length) {
+    $('matches').innerHTML = '';
+    $('empty').style.display = 'block';
+    $('empty').textContent = `Sin partidos en vivo ahora (${data.length} eventos recibidos).`;
+    if (count === 1) log(`${data.length} eventos, 0 en vivo.`);
+    return;
+  }
+  $('empty').style.display = 'none';
+
+  $('matches').innerHTML = live.map((ev) => {
+    const teams = ev.teams || [];
+    const home = teams.find(t => t.ordering === 'home') || teams[0] || {};
+    const away = teams.find(t => t.ordering === 'away') || teams[1] || {};
+    const p = prev.get(ev.id) || {};
+    const changed = (k) => p[k] !== undefined && String(p[k]) !== String(ev[k]);
+
+    // detect & log changes
+    if (changed('score')) log(`⚽ ${ev.title}: marcador ${p.score} → ${ev.score} (min ${ev.elapsed})`);
+    if (changed('period')) log(`⏱ ${ev.title}: periodo ${p.period} → ${ev.period}`);
+    if (p.live !== undefined && p.live !== ev.live) log(`🔔 ${ev.title}: live ${p.live} → ${ev.live}`);
+
+    prev.set(ev.id, { score: ev.score, elapsed: ev.elapsed, period: ev.period, live: ev.live });
+
+    const ml = (ev.markets || []).filter(m => m.sportsMarketType === 'moneyline');
+    const pcRows = ml.map(m =>
+      `<div class="pc">${m.groupItemTitle}: precio <b>${m.outcomePrices ? JSON.parse(m.outcomePrices)[0] : '?'}</b> · `
+      + `1h ${pcField(m,'oneHourPriceChange')} · 1d ${pcField(m,'oneDayPriceChange')}</div>`
+    ).join('');
+
+    return `<div class="match">
+      <h2>${ev.title || ev.slug}</h2>
+      <div class="flags">
+        ${home.logo ? `<img src="${home.logo}" alt="">` : ''} ${home.name || '?'}
+        <span style="margin:0 8px">${ev.score || '–'}</span>
+        ${away.name || '?'} ${away.logo ? `<img src="${away.logo}" alt="">` : ''}
+      </div>
+      <div class="grid">
+        ${cell('score', ev.score, { changed: changed('score') })}
+        ${cell('elapsed', ev.elapsed != null ? ev.elapsed + "'" : null, { changed: changed('elapsed') })}
+        ${cell('period', ev.period, { changed: changed('period') })}
+        ${cell('live', String(ev.live), { live: ev.live === true })}
+        ${cell('ended', String(ev.ended))}
+        ${cell('updatedAt', ev.updatedAt ? new Date(ev.updatedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : null)}
+        ${cell('gameId', ev.gameId)}
+      </div>
+      ${pcRows}
+    </div>`;
+  }).join('');
+}
+
+function schedule() {
+  if (timer) clearInterval(timer);
+  if (running) timer = setInterval(tick, INTERVAL);
+}
+
+$('toggle').onclick = () => {
+  running = !running;
+  $('toggle').textContent = running ? '⏸ Pausar' : '▶ Reanudar';
+  schedule();
+  log(running ? 'Reanudado.' : 'Pausado.');
+};
+$('now').onclick = tick;
+$('iv').textContent = INTERVAL / 1000;
+
+log('Iniciado.');
+tick();
+schedule();
+</script>
+</body>
+</html>
