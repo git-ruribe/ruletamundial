@@ -409,6 +409,9 @@ function eventToMatch(ev) {
   let score = null;
   const sm = typeof ev.score === 'string' && ev.score.match(/^(\d+)\s*-\s*(\d+)$/);
   if (sm) score = { home: Number(sm[1]), away: Number(sm[2]) };
+  // Timestamp of this REST snapshot — lets clockLabel interpolate the
+  // displayed minute between 30s fetches rather than jumping in steps.
+  const elapsedAt = Date.now();
 
   // Pre-match probabilities reconstructed from price-change fields:
   // current_raw − oneDayPriceChange ≈ price before kickoff (oneDayPriceChange
@@ -454,7 +457,8 @@ function eventToMatch(ev) {
     gameId: ev.gameId || null,
     home: homeTeam ? { name: (homeTeam.name || '').trim(), logo: homeTeam.logo || null } : null,
     away: awayTeam ? { name: (awayTeam.name || '').trim(), logo: awayTeam.logo || null } : null,
-    lambdas, // { lh, la } for WP.live(), null when calibration unavailable
+    lambdas,   // { lh, la } for WP.live(), null when calibration unavailable
+    elapsedAt, // Date.now() at fetch time — for interpolating the minute display
     acceptingOpen: moneyline.filter((m) => m.acceptingOrders !== false).length,
     // Venue, when the payload provides one (field coverage varies by event).
     venue: String(ev.venue || (ev.eventMetadata && ev.eventMetadata.venue) || '').trim(),
@@ -945,14 +949,24 @@ function hideResult() {
   renderMatchInfo();
 }
 
+// Interpolated elapsed minute: advance the REST snapshot by wall-clock
+// seconds so the display ticks every second instead of jumping every 30s.
+// Capped at 95' to avoid running past the realistic end of stoppage time.
+function liveElapsed(m) {
+  if (m.elapsed == null || !m.elapsedAt) return m.elapsed;
+  const added = Math.floor((Date.now() - m.elapsedAt) / 60000);
+  return Math.min(95, m.elapsed + added);
+}
+
 // The minute/period badge for a live or just-finished match.
 function clockLabel(m) {
   const p = (m.period || '').toUpperCase();
   if (p === 'HT') return '⏱ Half-time';
   if (p === 'FT' || matchEnded(m)) return '🏁 Full-time';
-  if (m.elapsed != null && Number.isFinite(m.elapsed)) {
+  const mins = liveElapsed(m);
+  if (mins != null && Number.isFinite(mins)) {
     const half = p === '1H' ? ' · 1st half' : p === '2H' ? ' · 2nd half' : '';
-    return `⏱ ${m.elapsed}'${half}`;
+    return `⏱ ${mins}'${half}`;
   }
   return p ? `⏱ ${p}` : '';
 }
@@ -995,7 +1009,7 @@ function renderScore(m) {
   // Model strip: Poisson in-play probabilities vs the live market (wheel).
   // Only shown during live play when calibration succeeded.
   if (m.lambdas && m.elapsed != null && m.score && isLive(m)) {
-    const wp = WP.live(m.lambdas.lh, m.lambdas.la, m.elapsed, m.score);
+    const wp = WP.live(m.lambdas.lh, m.lambdas.la, liveElapsed(m), m.score);
     const pct = (v) => Math.round(v * 100) + '%';
     const strip = document.createElement('div');
     strip.className = 'match-info__model';
@@ -1663,6 +1677,9 @@ function renderStreamStatus() {
 function onStreamClockTick() {
   renderStreamStatus();
   renderUpdated();
+  // Re-render the score slot every second so the interpolated minute and the
+  // model probabilities advance visually without waiting for the 30s REST tick.
+  if (state.current && isLive(state.current) && !state.spinning) renderMatchInfo();
 }
 
 // Re-fetch odds without disturbing the current spin/selection/rotation.
