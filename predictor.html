@@ -381,6 +381,10 @@ function scoreFromExact(ev) {
 }
 
 function buildModel(events) {
+  // Reset derived state — S.user (manual overrides) is the only thing preserved
+  // across rebuilds so drag/pick edits survive live auto-refreshes.
+  S.teams.clear(); S.matches.length = 0; S.groups.clear();
+  S.exactCount = 0; S.mlCount = 0; S.realCount = 0;
   const matchEvents = []; const exactByParent = new Map();
   for (const ev of events) {
     if (isExactScoreEvent(ev)) { if (ev.parentEventId != null) exactByParent.set(String(ev.parentEventId), ev); }
