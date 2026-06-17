@@ -1363,8 +1363,9 @@ const stream = {
   reconnectTimer: null,
   keepaliveTimer: null,
   applyTimer: null,
-  clockTimer: null, // 1s ticker for the streaming clock while connected
-  lastMsgAt: 0, // any inbound data (incl. PONG) — connection health signal
+  clockTimer: null,     // 1s ticker for the streaming clock while connected
+  lastMsgAt: 0,         // any inbound data (incl. PONG) — connection health signal
+  goalRefreshAt: 0,     // epoch of last goal-triggered REST refresh (debounce)
 };
 
 // "Continuous" stream: socket open AND something heard recently (our PINGs
@@ -1548,10 +1549,17 @@ function streamProb(token) {
   return e.last; // may be null — then the REST price stands
 }
 
+// A probability swing of this size on the selected match's top outcome is
+// treated as a goal signal — kick a REST refresh immediately so the scoreline
+// updates without waiting for the next 30s tick.
+const GOAL_SIGNAL_PP = 0.05; // 5 percentage points
+const GOAL_REFRESH_COOLDOWN = 8000; // ms — max one extra refresh per 8s
+
 function applyStreamPrices() {
   stream.applyTimer = null;
   if (state.spinning) { queueStreamApply(); return; } // never resize mid-spin
   let currentChanged = false;
+  let maxSwing = 0; // largest single-section move on the selected match
 
   for (const m of state.matches) {
     if (!isLive(m)) continue;
@@ -1559,8 +1567,11 @@ function applyStreamPrices() {
     for (const s of m.sections) {
       if (!s.token) continue;
       const p = streamProb(s.token);
+      if (p === null) continue;
+      const delta = Math.abs(p - s.raw);
       // Ignore sub-0.05pp jitter so the wheel doesn't vibrate.
-      if (p !== null && Math.abs(p - s.raw) > 0.0005) { s.raw = p; changed = true; }
+      if (delta > 0.0005) { s.raw = p; changed = true; }
+      if (m === state.current) maxSwing = Math.max(maxSwing, delta);
     }
     if (changed) {
       renormalizeMatch(m);
@@ -1571,6 +1582,17 @@ function applyStreamPrices() {
   if (currentChanged) {
     drawWheel();
     renderStreamStatus();
+  }
+
+  // A large swing on the selected match almost certainly means a goal.
+  // Trigger an immediate REST refresh to pull the updated scoreline — but
+  // debounce hard so a cascade of WSS messages fires at most one extra call.
+  if (maxSwing >= GOAL_SIGNAL_PP && state.current && isLive(state.current)) {
+    const now = Date.now();
+    if (now - stream.goalRefreshAt > GOAL_REFRESH_COOLDOWN) {
+      stream.goalRefreshAt = now;
+      refreshLive(); // fire-and-forget; refreshLive is already safe to overlap
+    }
   }
 }
 
