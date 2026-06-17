@@ -339,6 +339,28 @@ html, body {
   letter-spacing: 0.04em;
 }
 
+/* Poisson model strip */
+.match-info__model {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  font-size: 0.72rem;
+}
+.mi-model-label {
+  color: var(--muted);
+  margin-right: 2px;
+}
+.mi-model-h  { color: var(--team1); font-weight: 700; }
+.mi-model-d  { color: var(--draw);  font-weight: 700; }
+.mi-model-a  { color: var(--team2); font-weight: 700; }
+.mi-model-sep  { color: var(--muted); }
+.mi-model-diff {
+  color: var(--muted);
+  font-size: 0.68rem;
+  margin-left: 2px;
+}
+
 /* Result card (non-blocking: stays in flow, never covers the Spin button so
    you can re-spin without dismissing it). Height is reserved via .is-hidden. */
 .result {

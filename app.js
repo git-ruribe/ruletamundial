@@ -410,6 +410,33 @@ function eventToMatch(ev) {
   const sm = typeof ev.score === 'string' && ev.score.match(/^(\d+)\s*-\s*(\d+)$/);
   if (sm) score = { home: Number(sm[1]), away: Number(sm[2]) };
 
+  // Pre-match probabilities reconstructed from price-change fields:
+  // current_raw − oneDayPriceChange ≈ price before kickoff (oneDayPriceChange
+  // is preferred because it always predates kickoff; oneHourPriceChange is the
+  // fallback for markets where the day field is absent).
+  // Calibrate once here so renderScore can call WP.live() cheaply on every tick.
+  let lambdas = null;
+  if (typeof WP !== 'undefined') {
+    const preByThreshold = {};
+    for (const m of moneyline) {
+      const thr = Number(m.groupItemThreshold);
+      const outs = parseList(m.outcomes);
+      const prices = parseList(m.outcomePrices);
+      const yi = outs.findIndex((o) => YES_RE.test(o));
+      if (yi < 0) continue;
+      const cur = Number(prices[yi]) || 0;
+      const delta = m.oneDayPriceChange != null
+        ? Number(m.oneDayPriceChange)
+        : m.oneHourPriceChange != null ? Number(m.oneHourPriceChange) : 0;
+      preByThreshold[thr] = Math.max(0.001, cur - delta);
+    }
+    const p0 = preByThreshold[0], p1 = preByThreshold[1], p2 = preByThreshold[2];
+    if (p0 > 0 && p1 > 0 && p2 > 0) {
+      const tot = p0 + p1 + p2;
+      lambdas = WP.calibrate({ h: p0 / tot, d: p1 / tot, a: p2 / tot });
+    }
+  }
+
   return {
     id: ev.id,
     title: (ev.title || '').trim() || 'Match',
@@ -427,6 +454,7 @@ function eventToMatch(ev) {
     gameId: ev.gameId || null,
     home: homeTeam ? { name: (homeTeam.name || '').trim(), logo: homeTeam.logo || null } : null,
     away: awayTeam ? { name: (awayTeam.name || '').trim(), logo: awayTeam.logo || null } : null,
+    lambdas, // { lh, la } for WP.live(), null when calibration unavailable
     acceptingOpen: moneyline.filter((m) => m.acceptingOrders !== false).length,
     // Venue, when the payload provides one (field coverage varies by event).
     venue: String(ev.venue || (ev.eventMetadata && ev.eventMetadata.venue) || '').trim(),
@@ -963,6 +991,29 @@ function renderScore(m) {
   const clk = clockLabel(m);
   box.replaceChildren(line);
   if (clk) box.append(span('match-info__clock', clk));
+
+  // Model strip: Poisson in-play probabilities vs the live market (wheel).
+  // Only shown during live play when calibration succeeded.
+  if (m.lambdas && m.elapsed != null && m.score && isLive(m)) {
+    const wp = WP.live(m.lambdas.lh, m.lambdas.la, m.elapsed, m.score);
+    const pct = (v) => Math.round(v * 100) + '%';
+    const strip = document.createElement('div');
+    strip.className = 'match-info__model';
+    // Find the market prob for the home team (sections sorted home/draw/away).
+    const mktHome = m.sections[0] ? m.sections[0].prob : null;
+    const diff = mktHome != null ? Math.round((wp.h - mktHome) * 100) : 0;
+    const diffStr = diff === 0 ? '' : (diff > 0 ? ` (+${diff}pp)` : ` (${diff}pp)`);
+    strip.innerHTML =
+      `<span class="mi-model-label">⚗ Model</span>` +
+      `<span class="mi-model-h">${pct(wp.h)}</span>` +
+      `<span class="mi-model-sep">·</span>` +
+      `<span class="mi-model-d">${pct(wp.d)}</span>` +
+      `<span class="mi-model-sep">·</span>` +
+      `<span class="mi-model-a">${pct(wp.a)}</span>` +
+      (diffStr ? `<span class="mi-model-diff">${diffStr}</span>` : '');
+    box.append(strip);
+  }
+
   box.hidden = false;
   return true;
 }
