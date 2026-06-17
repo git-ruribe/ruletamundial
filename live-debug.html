@@ -74,7 +74,8 @@ a { color:var(--accent); }
   <p class="sub">Endpoint dedicado <code>wss://sports-api.polymarket.com/ws</code>. Sin suscripción: empuja todos los partidos activos cuando cambia el marcador/periodo. Aquí se prueba si entrega marcador por push.</p>
   <div class="bar">
     <span id="sp-state" class="src">desconectado</span>
-    <span class="meta">mensajes: <b id="sp-count">0</b> · con marcador: <b id="sp-scored">0</b></span>
+    <button id="sp-reconnect">↺ Reconectar</button>
+    <span class="meta">mensajes: <b id="sp-count">0</b> · con marcador: <b id="sp-scored">0</b> · WC: <b id="sp-wc">0</b></span>
   </div>
   <div class="match">
     <div class="cell" style="border:none;background:transparent;padding:0">
@@ -82,6 +83,17 @@ a { color:var(--accent); }
       <div class="v" id="sp-verdict">esperando datos…</div>
     </div>
   </div>
+
+  <h2 style="font-size:0.85rem;margin:14px 0 6px">🌎 Mundial detectado via Sports WSS</h2>
+  <div id="sp-wc-panel" class="match" style="display:none">
+    <div class="flags" id="sp-wc-teams">—</div>
+    <div class="grid" id="sp-wc-grid"></div>
+  </div>
+  <div id="sp-wc-empty" style="color:var(--mu);font-size:0.85rem;padding:8px 0">
+    Esperando un partido de la Copa del Mundo vía Sports WSS…<br>
+    <span style="font-size:0.78rem">(el gameId del REST debe coincidir con el del Sports WSS)</span>
+  </div>
+
   <h2 style="font-size:0.85rem;margin:10px 0 6px;color:var(--mu)">Últimos mensajes Sports WSS (crudos)</h2>
   <div id="sp-log" class="log">—</div>
 
@@ -215,6 +227,7 @@ async function tick() {
     </div>`;
   }).join('');
 
+  indexRestGameIds(live);
   ensureWss(live);
 }
 
@@ -292,56 +305,122 @@ function openWss(tokens, key) {
 
 /* ─────────────────────── Sports WebSocket inspector ──────────────────── */
 const SPORTS_WSS = 'wss://sports-api.polymarket.com/ws';
-const sp = { sock: null, count: 0, scored: 0, started: false };
+const sp = { sock: null, count: 0, scored: 0, wc: 0, retry: 0, reconnTimer: null };
+
+// gameId → { title, home, away, homeLogo, awayLogo } — built from REST ticks
+const restByGameId = new Map();
+
+function indexRestGameIds(live) {
+  for (const ev of live) {
+    if (ev.gameId == null) continue;
+    const teams = ev.teams || [];
+    const home = teams.find(t => t.ordering === 'home') || teams[0] || {};
+    const away = teams.find(t => t.ordering === 'away') || teams[1] || {};
+    restByGameId.set(String(ev.gameId), {
+      title: ev.title || ev.slug,
+      home: home.name || '?', away: away.name || '?',
+      homeLogo: home.logo || '', awayLogo: away.logo || '',
+    });
+  }
+}
 
 function openSportsWss() {
-  if (sp.started) return; // connect once
-  sp.started = true;
+  if (sp.sock && sp.sock.readyState <= WebSocket.OPEN) return;
+  if (sp.reconnTimer) { clearTimeout(sp.reconnTimer); sp.reconnTimer = null; }
   $('sp-state').className = 'src'; $('sp-state').textContent = 'conectando…';
   let sock;
   try { sock = new WebSocket(SPORTS_WSS); } catch (e) {
     $('sp-state').className = 'src err'; $('sp-state').textContent = 'WSS bloqueado';
-    sp.started = false; return;
+    return;
   }
   sp.sock = sock;
   sock.onopen = () => {
+    sp.retry = 0;
     $('sp-state').className = 'src gamma'; $('sp-state').textContent = 'conectado (sin suscripción)';
     log('Sports WSS conectado.');
   };
   sock.onmessage = (e) => {
-    // The server pings; reply pong to stay connected.
     if (e.data === 'PING' || e.data === 'ping') { try { sock.send('PONG'); } catch {} return; }
     if (typeof e.data !== 'string') return;
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
     const list = Array.isArray(msg) ? msg : [msg];
+    let loggedRaw = false;
     for (const m of list) {
+      if (!m) continue;
       sp.count++;
-      const hasScore = m && (m.score != null || m.period != null || m.elapsed != null);
+      const hasScore = m.score != null || m.period != null || m.elapsed != null;
       if (hasScore) {
         sp.scored++;
         $('sp-verdict').textContent = '✅ SÍ — el sports WSS empuja marcador en tiempo real';
         $('sp-verdict').style.color = 'var(--ok)';
-        // Log only soccer / world-cup style games to keep it relevant.
-        const lg = (m.leagueAbbreviation || m.league || '').toLowerCase();
-        if (/fif|soccer|wc/.test(lg) || /fifwc/.test(String(m.slug || ''))) {
-          log(`🏟 ${m.slug || m.gameId}: ${m.score} · ${m.period || ''} ${m.elapsed || ''} (live=${m.live})`);
+
+        // Cross-check: is this gameId one of our REST World Cup matches?
+        const gid = String(m.gameId || '');
+        const wc = restByGameId.get(gid);
+        if (wc) {
+          sp.wc++;
+          $('sp-wc').textContent = sp.wc;
+          $('sp-wc-empty').style.display = 'none';
+          $('sp-wc-panel').style.display = '';
+
+          // Score parsing
+          const sc = String(m.score || '').match(/^(\d+)\s*-\s*(\d+)$/);
+          const scoreStr = sc ? `${sc[1]} – ${sc[2]}` : (m.score || '?');
+
+          $('sp-wc-teams').innerHTML =
+            (wc.homeLogo ? `<img src="${wc.homeLogo}" alt="">` : '') +
+            ` ${wc.home} <span style="margin:0 10px;font-size:1.2rem">${scoreStr}</span> ${wc.away} ` +
+            (wc.awayLogo ? `<img src="${wc.awayLogo}" alt="">` : '');
+
+          $('sp-wc-grid').innerHTML = [
+            cell('gameId', gid, { live: true }),
+            cell('score (WSS)', m.score),
+            cell('elapsed', m.elapsed != null ? m.elapsed + "'" : null),
+            cell('period', m.period),
+            cell('live', String(m.live), { live: m.live === true }),
+            cell('ended', String(m.ended)),
+          ].join('');
+
+          const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+          log(`🌎⚡ WC match via Sports WSS: ${wc.title} | ${m.score} · ${m.period || ''} ${m.elapsed != null ? m.elapsed + "'" : ''} · gameId=${gid} @ ${t}`);
+          loggedRaw = true;
+        } else {
+          // Non-WC match with score — log briefly if soccer-ish
+          const lg = (m.leagueAbbreviation || m.league || '').toLowerCase();
+          if (/fif|soccer/.test(lg)) {
+            log(`⚽ (otro) gameId=${gid}: ${m.score} · ${m.period || ''} ${m.elapsed != null ? m.elapsed + "'" : ''}`);
+          }
         }
-      } else if ($('sp-verdict').textContent === 'esperando datos…') {
+      } else if (sp.count === 1) {
         $('sp-verdict').textContent = '… recibiendo, sin marcador aún';
       }
     }
     $('sp-count').textContent = sp.count;
     $('sp-scored').textContent = sp.scored;
-    $('sp-log').textContent = e.data.slice(0, 1200) + (e.data.length > 1200 ? '…' : '');
+    if (!loggedRaw) {
+      $('sp-log').textContent = e.data.slice(0, 1200) + (e.data.length > 1200 ? '…' : '');
+    } else {
+      $('sp-log').textContent = e.data.slice(0, 1200) + (e.data.length > 1200 ? '…' : '');
+    }
   };
   sock.onclose = () => {
     if (sp.sock !== sock) return;
-    $('sp-state').className = 'src err'; $('sp-state').textContent = 'cerrado';
-    sp.started = false;
+    sp.sock = null;
+    $('sp-state').className = 'src err'; $('sp-state').textContent = 'cerrado · reconectando…';
+    // Exponential backoff reconnect (max 30s)
+    const delay = Math.min(30000, 1000 * 2 ** sp.retry++);
+    sp.reconnTimer = setTimeout(openSportsWss, delay);
   };
   sock.onerror = () => { $('sp-state').className = 'src err'; $('sp-state').textContent = 'error WSS'; };
 }
+
+$('sp-reconnect').onclick = () => {
+  if (sp.sock) { try { sp.sock.close(); } catch {} }
+  sp.retry = 0;
+  openSportsWss();
+  log('Sports WSS reconexión manual.');
+};
 
 function schedule() {
   if (timer) clearInterval(timer);
