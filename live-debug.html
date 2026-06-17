@@ -142,12 +142,21 @@ async function tick() {
     const p = prev.get(ev.id) || {};
     const changed = (k) => p[k] !== undefined && String(p[k]) !== String(ev[k]);
 
-    // detect & log changes
+    // detect & log changes — elapsed/updatedAt moving during active play is
+    // the proof the anti-cache works (a frozen updatedAt only proves caching
+    // if the game is NOT at halftime / paused).
     if (changed('score')) log(`⚽ ${ev.title}: marcador ${p.score} → ${ev.score} (min ${ev.elapsed})`);
     if (changed('period')) log(`⏱ ${ev.title}: periodo ${p.period} → ${ev.period}`);
+    if (changed('elapsed')) log(`▶ ${ev.title}: minuto ${p.elapsed} → ${ev.elapsed}`);
+    if (changed('updatedAt')) log(`🔄 ${ev.title}: updatedAt avanzó → ${new Date(ev.updatedAt).toLocaleTimeString()}`);
     if (p.live !== undefined && p.live !== ev.live) log(`🔔 ${ev.title}: live ${p.live} → ${ev.live}`);
 
-    prev.set(ev.id, { score: ev.score, elapsed: ev.elapsed, period: ev.period, live: ev.live });
+    // Age of the data: seconds since Polymarket last changed this record.
+    const ageSec = ev.updatedAt ? Math.round((Date.now() - Date.parse(ev.updatedAt)) / 1000) : null;
+    const ageStr = ageSec == null ? '—' : ageSec + 's';
+    const ageCls = ageSec == null ? '' : ageSec > 90 ? ' changed' : ' live';
+
+    prev.set(ev.id, { score: ev.score, elapsed: ev.elapsed, period: ev.period, live: ev.live, updatedAt: ev.updatedAt });
 
     const ml = (ev.markets || []).filter(m => m.sportsMarketType === 'moneyline');
     const pcRows = ml.map(m =>
@@ -169,6 +178,7 @@ async function tick() {
         ${cell('live', String(ev.live), { live: ev.live === true })}
         ${cell('ended', String(ev.ended))}
         ${cell('updatedAt', ev.updatedAt ? new Date(ev.updatedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : null)}
+        <div class="cell${ageCls}"><div class="k">dato de hace</div><div class="v">${ageStr}</div></div>
         ${cell('gameId', ev.gameId)}
       </div>
       ${pcRows}
