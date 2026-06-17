@@ -339,6 +339,25 @@ html, body {
   letter-spacing: 0.04em;
 }
 
+/* Goal flash: brief gold burst when Sports WSS reports a new goal */
+@keyframes goal-flash {
+  0%   { background: rgba(255, 210, 63, 0.55); transform: scale(1.06); }
+  40%  { background: rgba(255, 210, 63, 0.20); }
+  100% { background: transparent; transform: scale(1); }
+}
+.match-info__score--goal {
+  animation: goal-flash 1.8s ease forwards;
+  border-radius: 8px;
+}
+/* "GOAL!" badge that appears briefly beside the clock */
+.match-info__goal-badge {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #ffd23f;
+  letter-spacing: 0.06em;
+  animation: goal-flash 2.4s ease forwards;
+}
+
 /* Poisson model strip */
 .match-info__model {
   display: flex;

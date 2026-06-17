@@ -1649,6 +1649,8 @@ function handleSportsMessage(data) {
   const msgs = Array.isArray(parsed) ? parsed : [parsed];
   let currentTouched = false;
 
+  let goalScored = false;
+
   for (const msg of msgs) {
     if (!msg || msg.gameId == null) continue;
     const m = sports.byGame.get(String(msg.gameId));
@@ -1657,7 +1659,13 @@ function handleSportsMessage(data) {
 
     // Score "H-A" (soccer); ignore set-style scores from other sports.
     const sc = String(es.score != null ? es.score : msg.score || '').match(/^(\d+)\s*-\s*(\d+)$/);
-    if (sc) m.score = { home: Number(sc[1]), away: Number(sc[2]) };
+    if (sc) {
+      const newH = Number(sc[1]), newA = Number(sc[2]);
+      const prevTotal = m.score ? m.score.home + m.score.away : null;
+      const newTotal = newH + newA;
+      if (prevTotal !== null && newTotal > prevTotal && m === state.current) goalScored = true;
+      m.score = { home: newH, away: newA };
+    }
 
     const elapsedRaw = es.elapsed != null ? es.elapsed : msg.elapsed;
     if (elapsedRaw != null && elapsedRaw !== '') {
@@ -1679,9 +1687,21 @@ function handleSportsMessage(data) {
   if (currentTouched && !state.spinning) {
     renderMatchInfo();
     updateLiveBadge();
+    if (goalScored) flashGoalScore();
     // A live↔ended transition may need the price stream started/stopped.
     syncLiveStream();
   }
+}
+
+// Brief gold flash on the score card when Sports WSS confirms a new goal.
+function flashGoalScore() {
+  const box = el.matchInfoScore;
+  if (!box) return;
+  box.classList.remove('match-info__score--goal');
+  // Force reflow so removing+re-adding the class always restarts the animation.
+  void box.offsetWidth;
+  box.classList.add('match-info__score--goal');
+  setTimeout(() => box.classList.remove('match-info__score--goal'), 2000);
 }
 
 // Best bid/ask from a book snapshot side (levels arrive in no fixed order).
