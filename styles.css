@@ -296,6 +296,49 @@ html, body {
 .match-info__when { font-variant-numeric: tabular-nums; }
 .match-info__venue { font-size: 0.78rem; opacity: 0.85; }
 
+/* Live scoreline (event-level Sportradar feed) */
+.match-info__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 2px;
+}
+.match-info__scoreline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text, #e6edf3);
+}
+.match-info__flag {
+  width: 26px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: 3px;
+  flex: none;
+}
+.match-info__team {
+  font-size: 0.9rem;
+  font-weight: 600;
+  max-width: 8.5ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.match-info__nums {
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+}
+.match-info__clock {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--err, #f85149);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 /* Result card (non-blocking: stays in flow, never covers the Spin button so
    you can re-spin without dismissing it). Height is reserved via .is-hidden. */
 .result {

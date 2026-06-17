@@ -101,6 +101,7 @@ const el = {
   spin: document.getElementById('spin-btn'),
   result: document.getElementById('result'),
   matchInfo: document.getElementById('match-info'),
+  matchInfoScore: document.getElementById('match-info-score'),
   matchInfoWhen: document.getElementById('match-info-when'),
   matchInfoVenue: document.getElementById('match-info-venue'),
   resultText: document.getElementById('result-text'),
@@ -399,6 +400,16 @@ function eventToMatch(ev) {
 
   raw.sort((a, b) => a.order - b.order);
   const sections = normalize(raw);
+
+  // Home/away from the teams array (Polymarket tags each with `ordering`).
+  const homeTeam = teams.find((t) => t && t.ordering === 'home') || teams[0];
+  const awayTeam = teams.find((t) => t && t.ordering === 'away') || teams[1];
+  // Live scoreline: the event-level `score` ("H-A") is a real Sportradar/
+  // OpticOdds feed, mapped to home/away via the same ordering.
+  let score = null;
+  const sm = typeof ev.score === 'string' && ev.score.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (sm) score = { home: Number(sm[1]), away: Number(sm[2]) };
+
   return {
     id: ev.id,
     title: (ev.title || '').trim() || 'Match',
@@ -407,6 +418,15 @@ function eventToMatch(ev) {
     // an explicit `ended` flag if the payload carries one, and how many
     // moneylines still accept orders — books close at the final whistle.
     ended: ev.ended === true,
+    // Event-level live feed (Sportradar via Polymarket): live flag, score,
+    // minute and period ("1H"/"2H"/"HT"/"FT"). Refreshed on each REST tick.
+    live: ev.live === true,
+    score,
+    elapsed: ev.elapsed != null && ev.elapsed !== '' ? Number(ev.elapsed) : null,
+    period: String(ev.period || '').trim(),
+    gameId: ev.gameId || null,
+    home: homeTeam ? { name: (homeTeam.name || '').trim(), logo: homeTeam.logo || null } : null,
+    away: awayTeam ? { name: (awayTeam.name || '').trim(), logo: awayTeam.logo || null } : null,
     acceptingOpen: moneyline.filter((m) => m.acceptingOrders !== false).length,
     // Venue, when the payload provides one (field coverage varies by event).
     venue: String(ev.venue || (ev.eventMetadata && ev.eventMetadata.venue) || '').trim(),
@@ -897,11 +917,62 @@ function hideResult() {
   renderMatchInfo();
 }
 
+// The minute/period badge for a live or just-finished match.
+function clockLabel(m) {
+  const p = (m.period || '').toUpperCase();
+  if (p === 'HT') return '⏱ Half-time';
+  if (p === 'FT' || matchEnded(m)) return '🏁 Full-time';
+  if (m.elapsed != null && Number.isFinite(m.elapsed)) {
+    const half = p === '1H' ? ' · 1st half' : p === '2H' ? ' · 2nd half' : '';
+    return `⏱ ${m.elapsed}'${half}`;
+  }
+  return p ? `⏱ ${p}` : '';
+}
+
+// Live scoreline with both flags into the match-info slot. Returns whether a
+// score was rendered (so the slot can still show the schedule when there isn't).
+function renderScore(m) {
+  const box = el.matchInfoScore;
+  if (!box) return false;
+  const show = m && m.score && m.home && m.away && (isLive(m) || matchEnded(m));
+  if (!show) { box.hidden = true; box.replaceChildren(); return false; }
+
+  const flag = (team) => {
+    const img = document.createElement('img');
+    img.className = 'match-info__flag';
+    if (team.logo) img.src = team.logo;
+    img.alt = '';
+    return img;
+  };
+  const span = (cls, text) => {
+    const s = document.createElement('span');
+    s.className = cls;
+    s.textContent = text;
+    return s;
+  };
+
+  const line = document.createElement('div');
+  line.className = 'match-info__scoreline';
+  line.append(
+    flag(m.home),
+    span('match-info__team', m.home.name),
+    span('match-info__nums', `${m.score.home} – ${m.score.away}`),
+    span('match-info__team', m.away.name),
+    flag(m.away)
+  );
+  const clk = clockLabel(m);
+  box.replaceChildren(line);
+  if (clk) box.append(span('match-info__clock', clk));
+  box.hidden = false;
+  return true;
+}
+
 // Kickoff in the viewer's local time (with timezone) plus venue when known.
 // Lives in the result slot: visible until a result lands, back on re-spin.
 function renderMatchInfo() {
   const m = state.current;
   if (!m || !el.matchInfo) { if (el.matchInfo) reserve(el.matchInfo, false); return; }
+  const hasScore = renderScore(m);
   const t = m.startTime ? Date.parse(m.startTime) : NaN;
   let when = '';
   if (!Number.isNaN(t)) {
@@ -909,7 +980,10 @@ function renderMatchInfo() {
       weekday: 'short', month: 'short', day: 'numeric',
       hour: '2-digit', minute: '2-digit', timeZoneName: 'short',
     });
-    when = isLive(m) ? `🔴 In play — kicked off ${local}`
+    // With the scoreline already announcing live/finished state, keep the date
+    // line secondary; otherwise it carries the status itself.
+    when = hasScore ? `📅 Kicked off ${local}`
+      : isLive(m) ? `🔴 In play — kicked off ${local}`
       : matchEnded(m) ? `🏁 Played ${local}`
       : `📅 ${local}`;
   }
@@ -922,7 +996,7 @@ function renderMatchInfo() {
   }
   // Never show on top of a visible result — the result owns the slot.
   const resultShowing = !el.result.classList.contains('is-hidden');
-  reserve(el.matchInfo, !!when && !resultShowing);
+  reserve(el.matchInfo, (!!when || hasScore) && !resultShowing);
 }
 
 /* ----------------------------- CONFETTI ---------------------------------- */
