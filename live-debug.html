@@ -345,7 +345,6 @@ function openSportsWss() {
     let msg;
     try { msg = JSON.parse(e.data); } catch { return; }
     const list = Array.isArray(msg) ? msg : [msg];
-    let loggedRaw = false;
     for (const m of list) {
       if (!m) continue;
       sp.count++;
@@ -384,7 +383,6 @@ function openSportsWss() {
 
           const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
           log(`🌎⚡ WC match via Sports WSS: ${wc.title} | ${m.score} · ${m.period || ''} ${m.elapsed != null ? m.elapsed + "'" : ''} · gameId=${gid} @ ${t}`);
-          loggedRaw = true;
         } else {
           // Non-WC match with score — log briefly if soccer-ish
           const lg = (m.leagueAbbreviation || m.league || '').toLowerCase();
@@ -398,11 +396,7 @@ function openSportsWss() {
     }
     $('sp-count').textContent = sp.count;
     $('sp-scored').textContent = sp.scored;
-    if (!loggedRaw) {
-      $('sp-log').textContent = e.data.slice(0, 1200) + (e.data.length > 1200 ? '…' : '');
-    } else {
-      $('sp-log').textContent = e.data.slice(0, 1200) + (e.data.length > 1200 ? '…' : '');
-    }
+    $('sp-log').textContent = e.data.slice(0, 1200) + (e.data.length > 1200 ? '…' : '');
   };
   sock.onclose = () => {
     if (sp.sock !== sock) return;
