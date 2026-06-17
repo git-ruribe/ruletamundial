@@ -171,6 +171,12 @@ async function getJSON(url, timeoutMs = 10000) {
   try {
     const res = await fetch(url, {
       headers: { accept: 'application/json' },
+      // Live polling reuses identical URLs every 30s; without this the browser
+      // serves a heuristically-cached response (no Cache-Control from Gamma),
+      // freezing the score/minute while the WSS keeps the wheel looking live.
+      // The request still hits the network → Cloudflare edge (≤20s TTL), so
+      // freshness stays well inside the poll interval.
+      cache: 'no-store',
       signal: ctrl.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} at ${url}`);
@@ -318,6 +324,7 @@ async function fetchEventsBySeries(seriesId) {
       order: 'endDate',
       ascending: 'true',
       series_id: String(seriesId),
+      _t: String(Date.now()), // cache-buster: live scores must never be stale
     });
     const page = await gammaGet(`/events?${qs.toString()}`);
     if (!Array.isArray(page) || !page.length) break;
@@ -337,6 +344,7 @@ async function fetchEventsFallback() {
       offset: String(offset),
       order: 'endDate',
       ascending: 'true',
+      _t: String(Date.now()), // cache-buster: live scores must never be stale
     });
     const page = await gammaGet(`/events?${qs.toString()}`);
     if (!Array.isArray(page) || !page.length) break;
