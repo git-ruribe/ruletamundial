@@ -341,6 +341,7 @@ async function fetchSeries() {
 // ties — the team the global market rates higher advances. Placeholder
 // outcomes ("Team AM", "Other") and resolved/eliminated ones price at ~0.
 async function fetchWinnerOdds() {
+  S.winnerProb.clear(); // reset before repopulating so eliminated teams don't persist
   try {
     const arr = await api('/events?slug=' + WINNER_SLUG);
     const ev = Array.isArray(arr) ? arr[0] : arr;
@@ -904,6 +905,7 @@ function scheduleLiveRefresh(events) {
     try {
       const [events] = await Promise.all([fetchSeries(), fetchWinnerOdds()]);
       buildModel(events);
+      S.loadedAt = new Date();
       render();
       scheduleLiveRefresh(events);
     } catch { scheduleLiveRefresh([]); } // retry in 60s even on error
