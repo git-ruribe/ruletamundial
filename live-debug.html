@@ -70,6 +70,21 @@ a { color:var(--accent); }
   <h2 style="font-size:0.85rem;margin:10px 0 6px;color:var(--mu)">Últimos mensajes WSS (crudos)</h2>
   <div id="ws-log" class="log">—</div>
 
+  <h2 style="font-size:0.95rem;margin:18px 0 6px">🏟 Sports WebSocket (marcadores)</h2>
+  <p class="sub">Endpoint dedicado <code>wss://sports-api.polymarket.com/ws</code>. Sin suscripción: empuja todos los partidos activos cuando cambia el marcador/periodo. Aquí se prueba si entrega marcador por push.</p>
+  <div class="bar">
+    <span id="sp-state" class="src">desconectado</span>
+    <span class="meta">mensajes: <b id="sp-count">0</b> · con marcador: <b id="sp-scored">0</b></span>
+  </div>
+  <div class="match">
+    <div class="cell" style="border:none;background:transparent;padding:0">
+      <div class="k">¿el sports WSS trae marcador?</div>
+      <div class="v" id="sp-verdict">esperando datos…</div>
+    </div>
+  </div>
+  <h2 style="font-size:0.85rem;margin:10px 0 6px;color:var(--mu)">Últimos mensajes Sports WSS (crudos)</h2>
+  <div id="sp-log" class="log">—</div>
+
   <h2 style="font-size:0.9rem;margin:14px 0 6px;color:var(--mu)">Bitácora REST</h2>
   <div id="log" class="log"></div>
 
@@ -275,6 +290,59 @@ function openWss(tokens, key) {
   sock.onerror = () => { $('ws-state').className = 'src err'; $('ws-state').textContent = 'error WSS'; };
 }
 
+/* ─────────────────────── Sports WebSocket inspector ──────────────────── */
+const SPORTS_WSS = 'wss://sports-api.polymarket.com/ws';
+const sp = { sock: null, count: 0, scored: 0, started: false };
+
+function openSportsWss() {
+  if (sp.started) return; // connect once
+  sp.started = true;
+  $('sp-state').className = 'src'; $('sp-state').textContent = 'conectando…';
+  let sock;
+  try { sock = new WebSocket(SPORTS_WSS); } catch (e) {
+    $('sp-state').className = 'src err'; $('sp-state').textContent = 'WSS bloqueado';
+    sp.started = false; return;
+  }
+  sp.sock = sock;
+  sock.onopen = () => {
+    $('sp-state').className = 'src gamma'; $('sp-state').textContent = 'conectado (sin suscripción)';
+    log('Sports WSS conectado.');
+  };
+  sock.onmessage = (e) => {
+    // The server pings; reply pong to stay connected.
+    if (e.data === 'PING' || e.data === 'ping') { try { sock.send('PONG'); } catch {} return; }
+    if (typeof e.data !== 'string') return;
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    const list = Array.isArray(msg) ? msg : [msg];
+    for (const m of list) {
+      sp.count++;
+      const hasScore = m && (m.score != null || m.period != null || m.elapsed != null);
+      if (hasScore) {
+        sp.scored++;
+        $('sp-verdict').textContent = '✅ SÍ — el sports WSS empuja marcador en tiempo real';
+        $('sp-verdict').style.color = 'var(--ok)';
+        // Log only soccer / world-cup style games to keep it relevant.
+        const lg = (m.leagueAbbreviation || m.league || '').toLowerCase();
+        if (/fif|soccer|wc/.test(lg) || /fifwc/.test(String(m.slug || ''))) {
+          log(`🏟 ${m.slug || m.gameId}: ${m.score} · ${m.period || ''} ${m.elapsed || ''} (live=${m.live})`);
+        }
+      } else if ($('sp-verdict').textContent === 'esperando datos…') {
+        $('sp-verdict').textContent = '… recibiendo, sin marcador aún';
+      }
+    }
+    $('sp-count').textContent = sp.count;
+    $('sp-scored').textContent = sp.scored;
+    $('sp-log').textContent = e.data.slice(0, 1200) + (e.data.length > 1200 ? '…' : '');
+  };
+  sock.onclose = () => {
+    if (sp.sock !== sock) return;
+    $('sp-state').className = 'src err'; $('sp-state').textContent = 'cerrado';
+    sp.started = false;
+  };
+  sock.onerror = () => { $('sp-state').className = 'src err'; $('sp-state').textContent = 'error WSS'; };
+}
+
 function schedule() {
   if (timer) clearInterval(timer);
   if (running) timer = setInterval(tick, INTERVAL);
@@ -290,6 +358,7 @@ $('now').onclick = tick;
 $('iv').textContent = INTERVAL / 1000;
 
 log('Iniciado.');
+openSportsWss(); // sports feed is global — connect immediately, independent of REST
 tick();
 schedule();
 </script>
