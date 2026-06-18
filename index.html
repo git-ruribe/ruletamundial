@@ -198,20 +198,26 @@
 
   <!-- First-party visit beacon → Cloudflare Worker /t (proxy/tracker.js).
        Stores country (from CF edge) + page + ?ref= channel. No cookies, no IP.
-       Opt out on your own devices: localStorage.setItem('gf-notrack', '1') -->
+       Exposes window.gfTrack(evt) so app.js can record engagement events
+       (spin/share) on the same beacon. Opt out on your own devices:
+       localStorage.setItem('gf-notrack', '1') -->
   <script>
   (function () {
-    try {
-      if (localStorage.getItem('gf-notrack')) return;
-      var ref = new URLSearchParams(location.search).get('ref') || '';
-      if (ref) sessionStorage.setItem('gf-ref', ref);
-      else ref = sessionStorage.getItem('gf-ref') || '';
-      var data = JSON.stringify({ page: location.pathname, ref: ref, evt: 'view' });
-      var url = 'https://gonnafind.com/t';
-      if (!(navigator.sendBeacon && navigator.sendBeacon(url, data))) {
-        fetch(url, { method: 'POST', body: data, keepalive: true }).catch(function () {});
-      }
-    } catch (e) { /* tracking must never break the app */ }
+    function gfTrack(evt) {
+      try {
+        if (localStorage.getItem('gf-notrack')) return;
+        var ref = new URLSearchParams(location.search).get('ref') || '';
+        if (ref) sessionStorage.setItem('gf-ref', ref);
+        else ref = sessionStorage.getItem('gf-ref') || '';
+        var data = JSON.stringify({ page: location.pathname, ref: ref, evt: evt || 'view' });
+        var url = 'https://gonnafind.com/t';
+        if (!(navigator.sendBeacon && navigator.sendBeacon(url, data))) {
+          fetch(url, { method: 'POST', body: data, keepalive: true }).catch(function () {});
+        }
+      } catch (e) { /* tracking must never break the app */ }
+    }
+    window.gfTrack = gfTrack;
+    gfTrack('view');
   })();
   </script>
 </body>

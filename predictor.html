@@ -774,10 +774,21 @@ window.addEventListener('resize', () => { if ($('bracket').childElementCount) dr
 /* ═══════════════════════ INTERACTIONS ═══════════════════════════════ */
 function orderOf(letter) { return tableFor(letter).map((r) => r.team); }
 
+// Engagement beacon: fire 'bracket' on the first manual edit of this load, so
+// the medal board shows how many viewers actually customize their bracket
+// (window.gfTrack is the shared inline tracker). No-ops if absent/opted out.
+let bracketTracked = false;
+function trackBracket() {
+  if (bracketTracked || typeof window.gfTrack !== 'function') return;
+  bracketTracked = true;
+  window.gfTrack('bracket');
+}
+
 function move(letter, i, dir) {
   const ord = orderOf(letter);
   const j = i + dir;
   if (j < 0 || j >= ord.length) return;
+  trackBracket();
   [ord[i], ord[j]] = [ord[j], ord[i]];
   S.user.order[letter] = ord;
   withFlip($('groups'), render);
@@ -794,6 +805,7 @@ document.addEventListener('click', (e) => {
       const t = thirdsRanked(allTables()).map((x) => x.letter);
       const i = +b.dataset.i, j = i + (act === 't-up' ? -1 : 1);
       if (j < 0 || j >= t.length) return;
+      trackBracket();
       [t[i], t[j]] = [t[j], t[i]];
       S.user.thirds = t;
       return render();
@@ -802,6 +814,7 @@ document.addEventListener('click', (e) => {
   const pick = e.target.closest('[data-pick]');
   if (pick) {
     const n = +pick.dataset.pick, team = pick.dataset.team;
+    trackBracket();
     if (S.user.picks[n] === team) delete S.user.picks[n]; else S.user.picks[n] = team;
     return render();
   }
@@ -840,6 +853,7 @@ document.addEventListener('pointerup', (e) => {
   const ord = orderOf(d.g);
   const from = ord.indexOf(d.t), to = ord.indexOf(over.dataset.t);
   if (from < 0 || to < 0) return;
+  trackBracket();
   ord.splice(to, 0, ord.splice(from, 1)[0]);
   S.user.order[d.g] = ord;
   withFlip($('groups'), render);
@@ -898,20 +912,26 @@ boot();
 
 <!-- First-party visit beacon → Cloudflare Worker /t (proxy/tracker.js).
      Stores country (from CF edge) + page + ?ref= channel. No cookies, no IP.
-     Opt out on your own devices: localStorage.setItem('gf-notrack', '1') -->
+     Exposes window.gfTrack(evt) so the bracket records engagement (evt:'bracket')
+     on the same beacon. Opt out on your own devices:
+     localStorage.setItem('gf-notrack', '1') -->
 <script>
 (function () {
-  try {
-    if (localStorage.getItem('gf-notrack')) return;
-    var ref = new URLSearchParams(location.search).get('ref') || '';
-    if (ref) sessionStorage.setItem('gf-ref', ref);
-    else ref = sessionStorage.getItem('gf-ref') || '';
-    var data = JSON.stringify({ page: location.pathname, ref: ref, evt: 'view' });
-    var url = 'https://gonnafind.com/t';
-    if (!(navigator.sendBeacon && navigator.sendBeacon(url, data))) {
-      fetch(url, { method: 'POST', body: data, keepalive: true }).catch(function () {});
-    }
-  } catch (e) { /* tracking must never break the app */ }
+  function gfTrack(evt) {
+    try {
+      if (localStorage.getItem('gf-notrack')) return;
+      var ref = new URLSearchParams(location.search).get('ref') || '';
+      if (ref) sessionStorage.setItem('gf-ref', ref);
+      else ref = sessionStorage.getItem('gf-ref') || '';
+      var data = JSON.stringify({ page: location.pathname, ref: ref, evt: evt || 'view' });
+      var url = 'https://gonnafind.com/t';
+      if (!(navigator.sendBeacon && navigator.sendBeacon(url, data))) {
+        fetch(url, { method: 'POST', body: data, keepalive: true }).catch(function () {});
+      }
+    } catch (e) { /* tracking must never break the app */ }
+  }
+  window.gfTrack = gfTrack;
+  gfTrack('view');
 })();
 </script>
 </body>

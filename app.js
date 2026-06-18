@@ -876,9 +876,21 @@ function fit(text, max) {
 }
 
 /* ------------------------------- SPIN ------------------------------------ */
+// Engagement beacon. window.gfTrack is defined by the inline tracker in
+// index.html; each event fires at most once per page load so view→spin→share
+// stays a comparable funnel in the medal board (raw spin volume isn't the
+// question). No-ops if the tracker is absent or the visitor opted out.
+const tracked = new Set();
+function track(evt) {
+  if (tracked.has(evt) || typeof window.gfTrack !== 'function') return;
+  tracked.add(evt);
+  window.gfTrack(evt);
+}
+
 function spin() {
   if (state.spinning || !state.current) return;
   state.spinning = true;
+  track('spin');
   el.spin.disabled = true;
   el.select.disabled = true;
   hideResult();
@@ -1384,6 +1396,7 @@ function flashShareLabel(msg) {
 async function doShare() {
   const r = state.lastResult;
   if (!r) return;
+  track('share'); // count the intent to share (the click), not sheet completion
   const url = shareUrl();
   const text = shareText(r);
   const data = { title: 'World Cup Wheel', text: `${text} Spin yours:`, url };

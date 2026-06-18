@@ -47,7 +47,7 @@ const ALLOW_ORIGINS = [
   'https://git-ruribe.github.io',
 ];
 
-const EVENTS = new Set(['view', 'spin', 'bracket']);
+const EVENTS = new Set(['view', 'spin', 'share', 'bracket']);
 
 function corsHeaders(origin) {
   const allow = ALLOW_ORIGINS.includes(origin) ? origin : ALLOW_ORIGINS[0];
