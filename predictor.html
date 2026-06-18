@@ -1,0 +1,938 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>World Cup Predictor — Bracket Seeded by Polymarket</title>
+  <meta name="description" content="Predict the 2026 World Cup: group standings pre-seeded with Polymarket's live match odds and real results, reorder them your way and watch the full knockout bracket build itself." />
+  <link rel="canonical" href="https://gonnafind.com/predictor.html" />
+  <meta name="theme-color" content="#0d1117" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="World Cup Wheel" />
+  <meta property="og:title" content="World Cup Predictor — the market already filled your bracket" />
+  <meta property="og:description" content="Group standings seeded by Polymarket's live match odds. Disagree? Drag teams around and build your own road to the final." />
+  <meta property="og:url" content="https://gonnafind.com/predictor.html" />
+  <meta property="og:image" content="https://gonnafind.com/og-image.png" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --panel2: #1c2330; --text: #e6edf3;
+      --muted: #8b949e; --border: #30363d; --accent: #ffd23f; --blue: #2f81f7;
+      --green: #3fb950; --amber: #d29922; --red: #f85149; --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; } /* beat display:grid/flex on hidden sections */
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height: 1.45; }
+
+    /* ───────────────────────── HERO ───────────────────────── */
+    .hero {
+      position: relative; overflow: hidden; text-align: center;
+      padding: 34px 16px 26px;
+      background:
+        radial-gradient(1200px 400px at 50% -180px, rgba(47,129,247,0.28), transparent 70%),
+        radial-gradient(800px 300px at 80% -120px, rgba(255,210,63,0.12), transparent 70%);
+      border-bottom: 1px solid var(--border);
+    }
+    .hero h1 {
+      margin: 0; font-size: clamp(1.5rem, 4.5vw, 2.4rem); font-weight: 900; letter-spacing: -0.02em;
+      background: linear-gradient(92deg, #fff 20%, var(--accent) 50%, #fff 80%);
+      background-size: 200% 100%;
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      animation: sheen 6s linear infinite;
+    }
+    @keyframes sheen { to { background-position: -200% 0; } }
+    .hero p { margin: 8px auto 0; max-width: 640px; color: var(--muted); font-size: 0.95rem; }
+    .hero .nav { margin-top: 14px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .nav a, .nav button {
+      display: inline-block; padding: 8px 16px; border-radius: 999px; font-weight: 700; font-size: 0.86rem;
+      border: 1px solid var(--border); color: var(--text); background: rgba(28,35,48,0.7);
+      text-decoration: none; cursor: pointer; backdrop-filter: blur(6px);
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .nav a:hover, .nav button:hover { transform: translateY(-2px); border-color: var(--accent); }
+    .seedbar {
+      margin: 16px auto 0; display: inline-flex; flex-wrap: wrap; justify-content: center; gap: 8px;
+      font-size: 0.78rem; color: var(--muted);
+    }
+    .seedbar .chip {
+      background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 12px;
+    }
+    .seedbar .chip b { color: var(--text); }
+
+    main { max-width: 1240px; margin: 0 auto; padding: 22px 14px 80px; }
+    h2 { font-size: 1.15rem; margin: 30px 4px 4px; display: flex; align-items: center; gap: 8px; }
+    .h2sub { color: var(--muted); font-size: 0.82rem; margin: 0 4px 14px; }
+
+    /* ─────────────────────── LOADING ──────────────────────── */
+    .skeleton { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 26px; }
+    .skeleton .sk {
+      height: 200px; border-radius: var(--radius); border: 1px solid var(--border);
+      background: linear-gradient(100deg, var(--panel) 40%, #1f2735 50%, var(--panel) 60%);
+      background-size: 200% 100%; animation: shimmer 1.4s linear infinite;
+    }
+    @keyframes shimmer { to { background-position: -200% 0; } }
+    .error { text-align: center; color: var(--red); padding: 40px 10px; }
+
+    /* ──────────────────── GROUP CARDS ─────────────────────── */
+    .groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(272px, 1fr)); gap: 14px; }
+    .gcard {
+      position: relative; border: 1px solid var(--border); border-radius: var(--radius);
+      background: linear-gradient(180deg, #19202c, var(--panel));
+      padding: 12px 12px 10px; perspective: 900px;
+      transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    }
+    .gcard:hover { transform: translateY(-3px); box-shadow: 0 10px 28px rgba(0,0,0,0.45); border-color: #3d4654; }
+    .gcard__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .gcard__title { font-weight: 900; font-size: 1rem; letter-spacing: 0.02em; }
+    .gcard__title span { color: var(--accent); }
+    .gcard__tools { display: flex; gap: 6px; }
+    .iconbtn {
+      background: var(--panel2); color: var(--muted); border: 1px solid var(--border); border-radius: 8px;
+      font-size: 0.72rem; padding: 3px 8px; cursor: pointer; font-weight: 700;
+    }
+    .iconbtn:hover { color: var(--text); border-color: var(--accent); }
+
+    .trow {
+      display: grid; grid-template-columns: 16px 18px 26px 1fr auto auto; gap: 6px; align-items: center;
+      padding: 6px 7px; border-radius: 10px; margin: 3px 0; background: rgba(28,35,48,0.55);
+      border: 1px solid transparent; user-select: none;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .trow.dragover { border-color: var(--accent); }
+    .trow.dragging { opacity: 0.55; }
+    /* Drag handle: pointer-events drag works on iOS too (touch-action: none
+       only here, so the rest of the row still scrolls the page normally). */
+    .grip {
+      color: var(--muted); font-size: 0.9rem; cursor: grab; text-align: center;
+      touch-action: none; -webkit-user-select: none; user-select: none;
+      -webkit-touch-callout: none;
+      padding: 6px 2px; margin: -6px 0; /* bigger finger target, same row height */
+    }
+    .grip:active { cursor: grabbing; color: var(--accent); }
+    .trow .pos { font-weight: 800; font-size: 0.8rem; text-align: center; color: var(--muted); }
+    .trow.p1 .pos, .trow.p2 .pos { color: var(--green); }
+    .trow.p3 .pos { color: var(--amber); }
+    .trow.p1, .trow.p2 { border-left: 3px solid var(--green); }
+    .trow.p3 { border-left: 3px solid var(--amber); }
+    .trow.p4 { border-left: 3px solid #444c56; opacity: 0.85; }
+    .trow img { width: 24px; height: 17px; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); }
+    .trow .name { font-size: 0.86rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .trow .name .hand { font-size: 0.72rem; }
+    .trow .stats { font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .trow .stats b { color: var(--text); }
+    .updn { display: flex; flex-direction: column; gap: 1px; }
+    .updn button {
+      background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.66rem;
+      line-height: 1; padding: 2px 4px; border-radius: 5px;
+    }
+    .updn button:hover { color: var(--accent); background: var(--panel2); }
+
+    .gmatches { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 7px; display: none; }
+    .gcard.show-matches .gmatches { display: block; }
+    .gm { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 0.74rem; color: var(--muted); padding: 2px 4px; }
+    .gm .sc { font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; background: var(--panel2); border-radius: 6px; padding: 0 7px; }
+    .gm .sc.real { color: var(--green); }
+    .gm .sc.live { color: #f85149; }
+    .gm .pr { font-size: 0.66rem; min-width: 48px; text-align: right; }
+
+    /* ─────────────────── THIRDS STRIP ─────────────────────── */
+    .thirds { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+    .third {
+      display: flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 11px;
+      background: var(--panel); border: 1px solid var(--border); font-size: 0.8rem; font-weight: 700;
+    }
+    .third img { width: 21px; height: 15px; object-fit: contain; }
+    .third .rk { color: var(--muted); font-size: 0.72rem; width: 16px; text-align: center; }
+    .third.in { border-color: rgba(63,185,80,0.55); box-shadow: inset 0 0 0 1px rgba(63,185,80,0.25); }
+    .third.out { opacity: 0.5; }
+    .third .g { color: var(--accent); font-size: 0.7rem; }
+    .third .updn button { font-size: 0.62rem; }
+
+    /* ───────────────────── BRACKET ────────────────────────── */
+    /* Mirrored tournament tree: both halves converge on the trophy at the
+       center. Pure flag chips; tap one to send it through. */
+    .bracketwrap { overflow-x: auto; padding-bottom: 10px; -webkit-overflow-scrolling: touch; }
+    .blabels { display: grid; grid-template-columns: repeat(11, 1fr); min-width: 1020px; margin-bottom: 4px; }
+    .blabels span { text-align: center; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+    .bracket {
+      position: relative; display: grid; min-width: 1020px;
+      grid-template-columns: repeat(11, 1fr);
+      grid-template-rows: repeat(32, minmax(13px, 1fr));
+      column-gap: 4px; padding: 6px 2px;
+    }
+    svg.wires { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+    .bracket .chip {
+      position: relative; z-index: 1; place-self: center;
+      width: 36px; height: 36px; border-radius: 50%; overflow: hidden;
+      background: var(--panel2); border: 2px solid #3d4654; cursor: pointer; padding: 0;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.5);
+      transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .bracket .chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .bracket .chip:hover { transform: scale(1.18); border-color: var(--accent); z-index: 2; }
+    .bracket .chip.manual { border-color: var(--accent); box-shadow: 0 0 10px rgba(255, 210, 63, 0.55); }
+    .bracket .chip.tbd { opacity: 0.3; cursor: default; }
+    .center-cell {
+      grid-column: 6; grid-row: 1 / -1; place-self: center; z-index: 1;
+      text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px;
+    }
+    .center-cell .chip { width: 56px; height: 56px; cursor: default; border-color: var(--accent); box-shadow: 0 0 18px rgba(255,210,63,0.4); }
+    .center-cell .cup { font-size: 2rem; line-height: 1; animation: bounce 2.4s ease infinite; }
+    .center-cell .cname { font-size: 0.78rem; font-weight: 800; max-width: 90px; }
+    .center-cell .cpct { font-size: 0.64rem; color: var(--muted); }
+
+    .champ {
+      margin-top: 6px; text-align: center; border: 1px solid rgba(255,210,63,0.5); border-radius: 16px;
+      background: radial-gradient(420px 160px at 50% -40px, rgba(255,210,63,0.16), transparent 70%), var(--panel);
+      padding: 18px 12px; box-shadow: 0 0 34px rgba(255,210,63,0.12);
+    }
+    .champ img { width: 64px; height: 44px; object-fit: contain; filter: drop-shadow(0 4px 10px rgba(0,0,0,0.6)); }
+    .champ .t { font-size: 1.05rem; font-weight: 900; margin-top: 6px; }
+    .champ .s { color: var(--muted); font-size: 0.74rem; margin-top: 2px; }
+    .champ .cup { font-size: 1.6rem; animation: bounce 2.4s ease infinite; display: inline-block; }
+    @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+    footer { text-align: center; color: var(--muted); font-size: 0.74rem; padding: 26px 12px 40px; }
+    footer a { color: var(--blue); }
+    .flipping { transition: transform 0.32s cubic-bezier(0.2, 0.8, 0.25, 1); }
+    @media (prefers-reduced-motion: reduce) {
+      .hero h1, .champ .cup { animation: none; }
+      .flipping { transition: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <h1>🔮 World Cup Predictor</h1>
+    <p>The crowd already filled your bracket: group standings are seeded from <strong>Polymarket's
+      live match odds</strong> — and real scores once games are played. Disagree? Move teams around —
+      the road to the final rebuilds itself live.</p>
+    <div class="nav">
+      <a href="/">🎡 Spin the Wheel</a>
+      <button id="resetall">↺ Reset to market</button>
+    </div>
+    <div class="seedbar" id="seedbar"></div>
+  </header>
+
+  <main>
+    <div id="loading" class="skeleton">
+      <div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div>
+      <div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div>
+    </div>
+    <div id="error" class="error" hidden></div>
+
+    <section id="groups-section" hidden>
+      <h2>🏟 Groups <span class="h2sub" style="margin:0">— tap 📊 for results &amp; predictions · drag or ▲▼ to reorder</span></h2>
+      <div id="groups" class="groups"></div>
+    </section>
+
+    <section id="thirds-section" hidden>
+      <h2>🥉 Best thirds</h2>
+      <p class="h2sub">The 8 best third-placed teams advance. Reorder if you disagree with the market's ranking.</p>
+      <div id="thirds" class="thirds"></div>
+    </section>
+
+    <section id="bracket-section" hidden>
+      <h2>🏆 Road to the final</h2>
+      <p class="h2sub">Both halves converge on the trophy. Tap any flag to send that team through — golden ring = your pick, the rest follow the winner market.</p>
+      <div class="bracketwrap">
+        <div class="blabels">
+          <span>R32</span><span>R16</span><span>QF</span><span>SF</span><span>Final</span>
+          <span>🏆</span>
+          <span>Final</span><span>SF</span><span>QF</span><span>R16</span><span>R32</span>
+        </div>
+        <div id="bracket" class="bracket"></div>
+      </div>
+      <div id="champ"></div>
+    </section>
+  </main>
+
+  <footer>
+    Seeded by Polymarket match odds · real results from resolved markets · For entertainment only ·
+    <a href="/">World Cup Wheel</a>
+  </footer>
+
+<script>
+'use strict';
+/* ═══════════════════════ CONFIG / STATIC DATA ═══════════════════════ */
+const GAMMA = 'https://gamma-api.polymarket.com';
+const PROXY = 'https://wc-proxy.zcv25kyj7b.workers.dev';
+const SERIES_ID = '11433';
+const WINNER_SLUG = 'world-cup-winner'; // tournament-winner futures market
+const PAGE = 100, MAX_EVENTS = 2000;
+const GROUP_STAGE_END = '2026-06-28'; // group games run Jun 11–27
+const STORE_KEY = 'predictor-v1';
+
+/* Official FIFA bracket (matches 73–104), verified against FIFA/ESPN/Sky.
+   'T:ABCDF' = best-third slot restricted to those groups. */
+const R32 = [
+  { n: 73, home: '2A', away: '2B' }, { n: 74, home: '1E', away: 'T:ABCDF' },
+  { n: 75, home: '1F', away: '2C' }, { n: 76, home: '1C', away: '2F' },
+  { n: 77, home: '1I', away: 'T:CDFGH' }, { n: 78, home: '2E', away: '2I' },
+  { n: 79, home: '1A', away: 'T:CEFHI' }, { n: 80, home: '1L', away: 'T:EHIJK' },
+  { n: 81, home: '1D', away: 'T:BEFIJ' }, { n: 82, home: '1G', away: 'T:AEHIJ' },
+  { n: 83, home: '2K', away: '2L' }, { n: 84, home: '1H', away: '2J' },
+  { n: 85, home: '1B', away: 'T:EFGIJ' }, { n: 86, home: '1J', away: '2H' },
+  { n: 87, home: '1K', away: 'T:DEIJL' }, { n: 88, home: '2D', away: '2G' },
+];
+const ROUNDS = [
+  { name: 'Round of 16', games: [ { n: 89, a: 74, b: 77 }, { n: 90, a: 73, b: 75 }, { n: 91, a: 76, b: 78 }, { n: 92, a: 79, b: 80 }, { n: 93, a: 83, b: 84 }, { n: 94, a: 81, b: 82 }, { n: 95, a: 86, b: 88 }, { n: 96, a: 85, b: 87 } ] },
+  { name: 'Quarterfinals', games: [ { n: 97, a: 89, b: 90 }, { n: 98, a: 93, b: 94 }, { n: 99, a: 91, b: 92 }, { n: 100, a: 95, b: 96 } ] },
+  { name: 'Semifinals', games: [ { n: 101, a: 97, b: 98 }, { n: 102, a: 99, b: 100 } ] },
+  { name: 'Final', games: [ { n: 104, a: 101, b: 102 } ] },
+];
+
+/* ═══════════════════════════ STATE ══════════════════════════════════ */
+const S = {
+  teams: new Map(),   // name -> {name, logo, abbr}
+  matches: [],        // group-stage: {home, away, hs, as, prob, src('exact'|'ml'|'real'), when}
+  groups: new Map(),  // letter -> [team names] (market order, recomputed)
+  winnerProb: new Map(), // canonical team name -> P(wins the tournament)
+  user: { order: {}, thirds: null, picks: {} }, // persisted overrides
+  exactCount: 0, mlCount: 0, realCount: 0, loadedAt: null,
+};
+
+// Team naming differs between the game series ("Korea Republic") and the
+// winner futures ("South Korea") — canonicalize before joining the two.
+const NAME_ALIAS = {
+  'korea republic': 'south korea',
+  'ir iran': 'iran',
+  'cote divoire': 'ivory coast',
+  'dr congo': 'congo dr',
+  'united states': 'usa',
+};
+function canonName(s) {
+  const n = String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+  return NAME_ALIAS[n] || n;
+}
+const $ = (id) => document.getElementById(id);
+const esc = (s) => { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; };
+const parseList = (v) => { if (Array.isArray(v)) return v; try { const p = JSON.parse(v); return Array.isArray(p) ? p : []; } catch { return []; } };
+
+/* ═════════════════════════ DATA LAYER ═══════════════════════════════ */
+let base = GAMMA;
+async function api(path) {
+  const get = async (b) => {
+    const r = await fetch(b + path, { headers: { accept: 'application/json' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  };
+  try { return await get(base); }
+  catch (e) { const other = base === GAMMA ? PROXY : GAMMA; const d = await get(other); base = other; return d; }
+}
+
+// The whole fifwc family, played and upcoming alike (real results come from
+// resolved exact-score markets, so closed events are wanted here).
+async function fetchSeries() {
+  const out = []; const seen = new Set();
+  for (let offset = 0; offset < MAX_EVENTS; offset += PAGE) {
+    const qs = new URLSearchParams({ series_id: SERIES_ID, limit: String(PAGE), offset: String(offset), order: 'id', ascending: 'true' });
+    const page = await api('/events?' + qs);
+    if (!Array.isArray(page) || !page.length) break;
+    for (const ev of page) if (!seen.has(ev.id)) { seen.add(ev.id); out.push(ev); }
+    if (page.length < PAGE) break;
+  }
+  return out;
+}
+
+// Tournament-winner futures: P(lifts the trophy) per team. Decides knockout
+// ties — the team the global market rates higher advances. Placeholder
+// outcomes ("Team AM", "Other") and resolved/eliminated ones price at ~0.
+async function fetchWinnerOdds() {
+  S.winnerProb.clear(); // reset before repopulating so eliminated teams don't persist
+  try {
+    const arr = await api('/events?slug=' + WINNER_SLUG);
+    const ev = Array.isArray(arr) ? arr[0] : arr;
+    for (const m of (ev && ev.markets) || []) {
+      const title = (m.groupItemTitle || '').trim();
+      if (!title || title === 'Other' || /^Team [A-Z]{2}$/.test(title)) continue;
+      const outs = parseList(m.outcomes); const prices = parseList(m.outcomePrices);
+      const yi = outs.findIndex((o) => /^yes$/i.test(o));
+      const p = yi >= 0 ? Number(prices[yi]) || 0 : 0;
+      S.winnerProb.set(canonName(title), p);
+    }
+  } catch (e) { console.warn('winner odds unavailable, falling back to group strength', e); }
+}
+
+function isMatchEvent(ev) {
+  return Array.isArray(ev.teams) && ev.teams.length >= 2 &&
+    (ev.markets || []).some((m) => m && m.sportsMarketType === 'moneyline');
+}
+function isExactScoreEvent(ev) {
+  return (ev.markets || []).some((m) => m && m.sportsMarketType === 'soccer_exact_score');
+}
+
+// Best scoreline from an exact-score event: argmax Yes price over concrete
+// scores; resolved markets price the real score at ~1 so this also yields
+// final results once a game is played.
+function scoreFromExact(ev) {
+  let best = null;
+  for (const m of ev.markets || []) {
+    const t = (m.groupItemTitle || '');
+    const sc = t.match(/(\d+)\s*-\s*(\d+)/);
+    if (!sc) continue; // "Any Other Score"
+    const outs = parseList(m.outcomes); const prices = parseList(m.outcomePrices);
+    const yi = outs.findIndex((o) => /^yes$/i.test(o));
+    const p = yi >= 0 ? Number(prices[yi]) || 0 : 0;
+    if (!best || p > best.p) best = { hs: +sc[1], as: +sc[2], p, resolved: m.closed === true && p > 0.99 };
+  }
+  return best;
+}
+
+function buildModel(events) {
+  // Reset derived state — S.user (manual overrides) is the only thing preserved
+  // across rebuilds so drag/pick edits survive live auto-refreshes.
+  S.teams.clear(); S.matches.length = 0; S.groups.clear();
+  S.exactCount = 0; S.mlCount = 0; S.realCount = 0;
+  const matchEvents = []; const exactByParent = new Map();
+  for (const ev of events) {
+    if (isExactScoreEvent(ev)) { if (ev.parentEventId != null) exactByParent.set(String(ev.parentEventId), ev); }
+    else if (isMatchEvent(ev)) matchEvents.push(ev);
+  }
+
+  for (const ev of matchEvents) {
+    if (!ev.eventDate || ev.eventDate >= GROUP_STAGE_END) continue; // groups only
+    const home = ev.teams.find((t) => t.ordering === 'home') || ev.teams[0];
+    const away = ev.teams.find((t) => t.ordering === 'away') || ev.teams[1];
+    if (!home || !away || home.name === away.name) continue;
+    for (const t of [home, away]) if (!S.teams.has(t.name)) S.teams.set(t.name, { name: t.name, logo: t.logo, abbr: (t.abbreviation || '').toUpperCase() });
+
+    // group letter hint from the generated context ("… Group A opener …")
+    const ctx = (ev.eventMetadata && ev.eventMetadata.context_description) || '';
+    const gm = ctx.match(/group\s+([A-L])\b/i);
+
+    // Priority order:
+    //  1. Resolved exact-score market → the real final result.
+    //  2. Live score from the event feed (ev.score "H-A", ev.live === true) →
+    //     shows current score in the standings while the game is in progress.
+    //  3. Moneyline 1X2 argmax → prediction for upcoming / untracked games.
+    //  4. Exact-score argmax fallback (draws over-predicted; last resort only).
+    const exact = exactByParent.get(String(ev.id));
+    const best = exact ? scoreFromExact(exact) : null;
+    let rec = null;
+    if (best && best.resolved) {
+      rec = { hs: best.hs, as: best.as, prob: 1, src: 'real' };
+      S.realCount++;
+    } else if (ev.live === true && typeof ev.score === 'string') {
+      // In-progress: show actual live score so standings reflect the game state.
+      const lm = ev.score.match(/^(\d+)\s*-\s*(\d+)$/);
+      if (lm) {
+        rec = { hs: Number(lm[1]), as: Number(lm[2]), prob: 0.5, src: 'live' };
+        S.mlCount++;
+      }
+    }
+    if (!rec) {
+      const ml = (ev.markets || []).filter((m) => m.sportsMarketType === 'moneyline');
+      let top = null;
+      for (const m of ml) {
+        const outs = parseList(m.outcomes); const prices = parseList(m.outcomePrices);
+        const yi = outs.findIndex((o) => /^yes$/i.test(o));
+        const p = yi >= 0 ? Number(prices[yi]) || 0 : 0;
+        const label = m.groupItemTitle || '';
+        if (!top || p > top.p) top = { label, p };
+      }
+      if (top && top.p > 0) {
+        const isDraw = /\bdraw\b/i.test(top.label);
+        const homeWin = !isDraw && canonName(top.label) === canonName(home.name);
+        rec = { hs: isDraw ? 1 : homeWin ? 1 : 0, as: isDraw ? 1 : homeWin ? 0 : 1, prob: top.p, src: 'ml' };
+        S.mlCount++;
+      } else if (best) { rec = { hs: best.hs, as: best.as, prob: best.p, src: 'exact' }; S.exactCount++; }
+    }
+    if (!rec) continue;
+    S.matches.push({ home: home.name, away: away.name, when: ev.startTime || '', letterHint: gm ? gm[1].toUpperCase() : null, ...rec });
+  }
+
+  // Groups = connected components of "who plays whom" in the group stage.
+  const parent = new Map();
+  const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+  for (const n of S.teams.keys()) parent.set(n, n);
+  for (const m of S.matches) { const a = find(m.home), b = find(m.away); if (a !== b) parent.set(a, b); }
+  const comps = new Map();
+  for (const n of S.teams.keys()) { const r = find(n); if (!comps.has(r)) comps.set(r, []); comps.get(r).push(n); }
+
+  // Letter per component: majority vote of the matches' context hints.
+  const used = new Set();
+  const lettered = [];
+  for (const teams of comps.values()) {
+    const votes = {};
+    for (const m of S.matches) if (teams.includes(m.home) && m.letterHint) votes[m.letterHint] = (votes[m.letterHint] || 0) + 1;
+    const letter = Object.entries(votes).sort((a, b) => b[1] - a[1]).map(([k]) => k).find((k) => !used.has(k)) || null;
+    if (letter) used.add(letter);
+    lettered.push({ letter, teams });
+  }
+  const free = 'ABCDEFGHIJKL'.split('').filter((l) => !used.has(l));
+  for (const c of lettered) if (!c.letter) c.letter = free.shift() || '?';
+  lettered.sort((a, b) => a.letter.localeCompare(b.letter));
+  for (const c of lettered) S.groups.set(c.letter, c.teams);
+}
+
+/* ════════════════════ STANDINGS / THIRDS / BRACKET ══════════════════ */
+function tableFor(letter) {
+  const teams = S.groups.get(letter) || [];
+  const st = new Map(teams.map((t) => [t, { team: t, pts: 0, gd: 0, gf: 0 }]));
+  for (const m of S.matches) {
+    if (!st.has(m.home) || !st.has(m.away)) continue;
+    const h = st.get(m.home), a = st.get(m.away);
+    h.gf += m.hs; a.gf += m.as; h.gd += m.hs - m.as; a.gd += m.as - m.hs;
+    if (m.hs > m.as) h.pts += 3; else if (m.hs < m.as) a.pts += 3; else { h.pts++; a.pts++; }
+  }
+  const rows = [...st.values()].sort((x, y) => y.pts - x.pts || y.gd - x.gd || y.gf - x.gf || x.team.localeCompare(y.team));
+  const userOrder = S.user.order[letter];
+  if (userOrder && userOrder.length === rows.length && userOrder.every((t) => st.has(t))) {
+    rows.sort((x, y) => userOrder.indexOf(x.team) - userOrder.indexOf(y.team));
+  }
+  rows.marketOrder = [...st.values()].sort((x, y) => y.pts - x.pts || y.gd - x.gd || y.gf - x.gf || x.team.localeCompare(y.team)).map((r) => r.team);
+  return rows;
+}
+
+function allTables() { const t = {}; for (const l of S.groups.keys()) t[l] = tableFor(l); return t; }
+
+function thirdsRanked(tables) {
+  const thirds = Object.entries(tables).map(([l, rows]) => ({ letter: l, ...rows[2] }));
+  thirds.sort((x, y) => y.pts - x.pts || y.gd - x.gd || y.gf - x.gf || x.letter.localeCompare(y.letter));
+  const u = S.user.thirds;
+  if (u && u.length === thirds.length && u.every((l) => thirds.some((t) => t.letter === l))) {
+    thirds.sort((x, y) => u.indexOf(x.letter) - u.indexOf(y.letter));
+  }
+  return thirds;
+}
+
+// Assign the 8 qualified thirds to the bracket's restricted slots
+// (backtracking — a valid assignment exists for every FIFA combination).
+function assignThirds(qualified) {
+  const slots = R32.filter((m) => m.away.startsWith('T:'))
+    .map((m) => ({ n: m.n, allowed: new Set(m.away.slice(2).split('')) }))
+    .sort((a, b) => a.allowed.size - b.allowed.size);
+  const assign = {}; const used = new Set();
+  function bt(i) {
+    if (i === slots.length) return true;
+    for (const g of qualified) {
+      if (used.has(g) || !slots[i].allowed.has(g)) continue;
+      used.add(g); assign[slots[i].n] = g;
+      if (bt(i + 1)) return true;
+      used.delete(g); delete assign[slots[i].n];
+    }
+    return false;
+  }
+  return bt(0) ? assign : null;
+}
+
+function strengthMap(tables) {
+  const s = new Map();
+  for (const rows of Object.values(tables)) for (const r of rows) s.set(r.team, r.pts * 10000 + r.gd * 100 + r.gf);
+  return s;
+}
+
+// Resolve the whole knockout tree: slots → teams → winners (market strength
+// by default, user picks override and are dropped if the team left the tie).
+function buildBracket(tables, thirds) {
+  const qualified = thirds.slice(0, 8).map((t) => t.letter);
+  const thirdSlot = assignThirds(qualified) || {};
+  const strength = strengthMap(tables);
+  const teamAt = (code, n) => {
+    if (code.startsWith('T:')) { const g = thirdSlot[n]; return g ? tables[g][2].team : null; }
+    const pos = +code[0], g = code[1];
+    return tables[g] ? tables[g][pos - 1].team : null;
+  };
+  const games = new Map(); // n -> {n, home, away, winner, manual}
+  for (const m of R32) games.set(m.n, { n: m.n, home: teamAt(m.home, m.n), away: teamAt(m.away, m.n) });
+  for (const round of ROUNDS) for (const g of round.games) games.set(g.n, { n: g.n, from: [g.a, g.b] });
+
+  // Default tie winner: whoever the global winner-futures market rates
+  // higher; group-stage strength only breaks ties / fills gaps.
+  const favoured = (a, b) => {
+    const pa = S.winnerProb.get(canonName(a));
+    const pb = S.winnerProb.get(canonName(b));
+    if (pa != null && pb != null && pa !== pb) return pa > pb ? a : b;
+    return (strength.get(a) || 0) >= (strength.get(b) || 0) ? a : b;
+  };
+
+  const order = [...R32.map((m) => m.n), ...ROUNDS.flatMap((r) => r.games.map((g) => g.n))];
+  for (const n of order) {
+    const g = games.get(n);
+    if (g.from) { g.home = games.get(g.from[0]).winner || null; g.away = games.get(g.from[1]).winner || null; }
+    const pick = S.user.picks[n];
+    if (pick && (pick === g.home || pick === g.away)) { g.winner = pick; g.manual = true; }
+    else if (g.home && g.away) g.winner = favoured(g.home, g.away);
+    else g.winner = g.home || g.away || null;
+  }
+  return games;
+}
+
+/* ═══════════════════════════ RENDER ═════════════════════════════════ */
+function flag(team, w = 24) {
+  const t = S.teams.get(team);
+  return t && t.logo ? '<img src="' + esc(t.logo) + '" alt="" loading="lazy">' : '<span style="width:' + w + 'px"></span>';
+}
+
+// FLIP: snapshot row positions, mutate DOM, animate the delta.
+function withFlip(container, mutate) {
+  const before = new Map();
+  container.querySelectorAll('[data-flip]').forEach((el) => before.set(el.dataset.flip, el.getBoundingClientRect().top));
+  mutate();
+  container.querySelectorAll('[data-flip]').forEach((el) => {
+    const prev = before.get(el.dataset.flip);
+    if (prev == null) return;
+    const dy = prev - el.getBoundingClientRect().top;
+    if (!dy) return;
+    el.style.transform = 'translateY(' + dy + 'px)';
+    requestAnimationFrame(() => { el.classList.add('flipping'); el.style.transform = ''; });
+    el.addEventListener('transitionend', () => el.classList.remove('flipping'), { once: true });
+  });
+}
+
+function render() {
+  const tables = allTables();
+  const thirds = thirdsRanked(tables);
+  renderSeedbar();
+  renderGroups(tables);
+  renderThirds(thirds);
+  renderBracket(buildBracket(tables, thirds));
+  save();
+}
+
+function renderSeedbar() {
+  const liveCount = S.matches.filter((m) => m.src === 'live').length;
+  const edits = Object.keys(S.user.order).length + Object.keys(S.user.picks).length + (S.user.thirds ? 1 : 0);
+  $('seedbar').innerHTML =
+    (S.realCount ? '<span class="chip">✅ played: <b>' + S.realCount + '</b></span>' : '')
+    + (liveCount ? '<span class="chip">🔴 live now: <b>' + liveCount + '</b></span>' : '')
+    + '<span class="chip">📊 match odds: <b>' + (S.mlCount - liveCount) + '</b></span>'
+    + (S.exactCount ? '<span class="chip">≈ exact score: <b>' + S.exactCount + '</b></span>' : '')
+    + (S.winnerProb.size ? '<span class="chip">🏆 winner odds: <b>' + S.winnerProb.size + ' teams</b></span>' : '')
+    + '<span class="chip">✋ your edits: <b>' + edits + '</b></span>'
+    + (S.loadedAt ? '<span class="chip">updated <b>' + S.loadedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</b></span>' : '');
+}
+
+function renderGroups(tables) {
+  const wrap = $('groups');
+  const open = new Set([...wrap.querySelectorAll('.gcard.show-matches')].map((c) => c.dataset.g));
+  wrap.innerHTML = Object.entries(tables).map(([l, rows]) => {
+    const touched = !!S.user.order[l];
+    const gms = S.matches.filter((m) => (S.groups.get(l) || []).includes(m.home));
+    return '<div class="gcard' + (open.has(l) ? ' show-matches' : '') + '" data-g="' + l + '">'
+      + '<div class="gcard__head"><span class="gcard__title">Group <span>' + l + '</span></span>'
+      + '<span class="gcard__tools">'
+      + (touched ? '<button class="iconbtn" data-act="reset" data-g="' + l + '">↺ market</button>' : '')
+      + '<button class="iconbtn" data-act="toggle" data-g="' + l + '">📊</button>'
+      + '</span></div>'
+      + rows.map((r, i) => {
+        const moved = touched && rows.marketOrder[i] !== r.team;
+        return '<div class="trow p' + (i + 1) + '" data-flip="' + esc(l + r.team) + '" data-g="' + l + '" data-t="' + esc(r.team) + '">'
+          + '<span class="grip" aria-hidden="true">⠿</span>'
+          + '<span class="pos">' + (i + 1) + '</span>' + flag(r.team)
+          + '<span class="name">' + esc(r.team) + (moved ? ' <span class="hand">✋</span>' : '') + '</span>'
+          + '<span class="stats"><b>' + r.pts + '</b>pts ' + (r.gd >= 0 ? '+' : '') + r.gd + '</span>'
+          + '<span class="updn"><button data-act="up" data-g="' + l + '" data-i="' + i + '">▲</button>'
+          + '<button data-act="dn" data-g="' + l + '" data-i="' + i + '">▼</button></span>'
+          + '</div>';
+      }).join('')
+      + '<div class="gmatches">' + gms.map((m) =>
+          '<div class="gm"><span>' + esc(short(m.home)) + '</span>'
+          + '<span class="sc' + (m.src === 'real' ? ' real' : m.src === 'live' ? ' live' : '') + '">' + m.hs + ' - ' + m.as + '</span>'
+          + '<span>' + esc(short(m.away)) + '</span>'
+          + '<span class="pr">' + (m.src === 'real' ? 'FT ✓' : m.src === 'live' ? '🔴' : (m.prob * 100).toFixed(0) + '%') + '</span></div>'
+        ).join('') + '</div>'
+      + '</div>';
+  }).join('');
+}
+const short = (n) => n.length > 13 ? n.slice(0, 12) + '…' : n;
+
+function renderThirds(thirds) {
+  $('thirds').innerHTML = thirds.map((t, i) =>
+    '<span class="third ' + (i < 8 ? 'in' : 'out') + '">'
+    + '<span class="rk">' + (i + 1) + '</span>' + flag(t.team, 21)
+    + esc(short(t.team)) + ' <span class="g">' + t.letter + '</span>'
+    + '<span class="updn"><button data-act="t-up" data-i="' + i + '">▲</button>'
+    + '<button data-act="t-dn" data-i="' + i + '">▼</button></span>'
+    + '</span>').join('');
+}
+
+// Tree order (final → backwards): the two feeders of any match sit adjacent
+// in the previous column, so connectors never cross.
+function bracketColumns() {
+  const defs = new Map();
+  R32.forEach((g) => defs.set(g.n, g));
+  ROUNDS.forEach((r) => r.games.forEach((g) => defs.set(g.n, g)));
+  let cols = [[104]];
+  for (;;) {
+    const next = cols[0].flatMap((n) => { const g = defs.get(n); return g.a != null ? [g.a, g.b] : []; });
+    if (!next.length) break;
+    cols.unshift(next);
+  }
+  return cols; // [R32×16, R16×8, QF×4, SF×2, Final×1]
+}
+
+// Which match the winner of `n` plays next.
+const PARENT = (() => {
+  const p = {};
+  ROUNDS.forEach((r) => r.games.forEach((g) => { p[g.a] = g.n; p[g.b] = g.n; }));
+  return p;
+})();
+
+// Mirrored tree: left half = the semifinal-101 subtree flowing →, right half
+// = the 102 subtree flowing ←, champion + trophy in the middle.
+function renderBracket(games) {
+  const leaves = bracketColumns()[0];
+  const halves = [leaves.slice(0, 8), leaves.slice(8)];
+  const html = [];
+
+  const chip = (id, cell, gridCol, rowStart, span) => {
+    const style = 'grid-column:' + gridCol + ';grid-row:' + rowStart + ' / span ' + span;
+    if (!cell || !cell.team) return '<span class="chip tbd" id="' + id + '" style="' + style + '"></span>';
+    const t = S.teams.get(cell.team);
+    return '<button class="chip' + (cell.manual ? ' manual' : '') + '" id="' + id + '" style="' + style + '"'
+      + ' data-pick="' + cell.click + '" data-team="' + esc(cell.team) + '" title="' + esc(cell.team) + '">'
+      + (t && t.logo ? '<img src="' + esc(t.logo) + '" alt="' + esc(cell.team) + '" loading="lazy">' : '')
+      + '</button>';
+  };
+
+  halves.forEach((r32s, h) => {
+    // Matches per column of this half, in tree order: R32(8) R16(4) QF(2) SF(1).
+    const colsM = [r32s];
+    for (let k = 1; k < 4; k++) {
+      const prev = colsM[k - 1]; const next = [];
+      for (let i = 0; i < prev.length; i += 2) next.push(PARENT[prev[i]]);
+      colsM.push(next);
+    }
+    // Column 0: the 16 participants; columns 1..4: each round's survivors.
+    const cells0 = [];
+    for (const m of r32s) {
+      const g = games.get(m);
+      cells0.push({ team: g.home, click: m }, { team: g.away, click: m });
+    }
+    const colCells = [cells0];
+    for (let k = 0; k < 4; k++) {
+      colCells.push(colsM[k].map((m) => {
+        const g = games.get(m);
+        return { team: g.winner, click: PARENT[m] || 104, manual: g.manual };
+      }));
+    }
+    colCells.forEach((cells, k) => {
+      const span = 32 / cells.length;
+      const gridCol = h === 0 ? k + 1 : 11 - k;
+      cells.forEach((cell, i) => html.push(chip('hc-' + h + '-' + k + '-' + i, cell, gridCol, i * span + 1, span)));
+    });
+  });
+
+  // Center: champion above the trophy.
+  const champ = games.get(104).winner;
+  const champP = champ ? S.winnerProb.get(canonName(champ)) : null;
+  const ct = champ && S.teams.get(champ);
+  const touched = Object.keys(S.user.picks).length || Object.keys(S.user.order).length || S.user.thirds;
+  html.push('<div class="center-cell">'
+    + '<span class="chip" id="hc-champ">' + (ct && ct.logo ? '<img src="' + esc(ct.logo) + '" alt="">' : '') + '</span>'
+    + (champ ? '<span class="cname">' + esc(champ) + '</span>' : '')
+    + (champP != null ? '<span class="cpct">' + (champP * 100).toFixed(1) + '% to win it all</span>' : '')
+    + '<span class="cup">🏆</span>'
+    + '<span class="cpct">' + (touched ? 'your bracket' : 'the market’s bracket') + '</span>'
+    + '</div>');
+
+  $('bracket').innerHTML = html.join('');
+  drawWires();
+}
+
+// Orthogonal elbow connectors between rounds, drawn over chip positions.
+function drawWires() {
+  const wrap = $('bracket');
+  let svg = wrap.querySelector('svg.wires');
+  if (!svg) {
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'wires');
+    wrap.prepend(svg);
+  }
+  svg.setAttribute('viewBox', '0 0 ' + wrap.scrollWidth + ' ' + wrap.scrollHeight);
+  const mid = (el) => ({ x: el.offsetLeft + el.offsetWidth / 2, y: el.offsetTop + el.offsetHeight / 2, r: el.offsetWidth / 2 });
+  const get = (h, k, i) => document.getElementById('hc-' + h + '-' + k + '-' + i);
+  const seg = [];
+  const elbow = (a, b, dir) => {
+    const x1 = a.x + dir * (a.r + 2), x2 = b.x - dir * (b.r + 2), mx = (x1 + x2) / 2;
+    seg.push('M' + x1 + ' ' + a.y + ' H' + mx + ' V' + b.y + ' H' + x2);
+  };
+  for (let h = 0; h < 2; h++) {
+    const dir = h === 0 ? 1 : -1;
+    for (let k = 1; k <= 4; k++) {
+      for (let i = 0; i < (16 >> k); i++) {
+        const parent = get(h, k, i);
+        if (!parent) continue;
+        for (const ci of [2 * i, 2 * i + 1]) {
+          const child = get(h, k - 1, ci);
+          if (child) elbow(mid(child), mid(parent), dir);
+        }
+      }
+    }
+    const finalist = get(h, 4, 0);
+    const champEl = document.getElementById('hc-champ');
+    if (finalist && champEl) elbow(mid(finalist), mid(champEl), dir);
+  }
+  svg.innerHTML = '<path d="' + seg.join(' ') + '" fill="none" stroke="#3d4654" stroke-width="1.5" stroke-linecap="round"/>';
+}
+window.addEventListener('resize', () => { if ($('bracket').childElementCount) drawWires(); });
+
+/* ═══════════════════════ INTERACTIONS ═══════════════════════════════ */
+function orderOf(letter) { return tableFor(letter).map((r) => r.team); }
+
+// Engagement beacon: fire 'bracket' on the first manual edit of this load, so
+// the medal board shows how many viewers actually customize their bracket
+// (window.gfTrack is the shared inline tracker). No-ops if absent/opted out.
+let bracketTracked = false;
+function trackBracket() {
+  if (bracketTracked || typeof window.gfTrack !== 'function') return;
+  bracketTracked = true;
+  window.gfTrack('bracket');
+}
+
+function move(letter, i, dir) {
+  const ord = orderOf(letter);
+  const j = i + dir;
+  if (j < 0 || j >= ord.length) return;
+  trackBracket();
+  [ord[i], ord[j]] = [ord[j], ord[i]];
+  S.user.order[letter] = ord;
+  withFlip($('groups'), render);
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]');
+  if (b) {
+    const act = b.dataset.act;
+    if (act === 'up' || act === 'dn') return move(b.dataset.g, +b.dataset.i, act === 'up' ? -1 : 1);
+    if (act === 'reset') { delete S.user.order[b.dataset.g]; return withFlip($('groups'), render); }
+    if (act === 'toggle') { b.closest('.gcard').classList.toggle('show-matches'); return; }
+    if (act === 't-up' || act === 't-dn') {
+      const t = thirdsRanked(allTables()).map((x) => x.letter);
+      const i = +b.dataset.i, j = i + (act === 't-up' ? -1 : 1);
+      if (j < 0 || j >= t.length) return;
+      trackBracket();
+      [t[i], t[j]] = [t[j], t[i]];
+      S.user.thirds = t;
+      return render();
+    }
+  }
+  const pick = e.target.closest('[data-pick]');
+  if (pick) {
+    const n = +pick.dataset.pick, team = pick.dataset.team;
+    trackBracket();
+    if (S.user.picks[n] === team) delete S.user.picks[n]; else S.user.picks[n] = team;
+    return render();
+  }
+});
+
+// Reordering by dragging the ⠿ handle. Pointer Events cover mouse AND touch
+// (HTML5 drag-and-drop never fires on iOS), and capturing on the handle keeps
+// elementFromPoint usable to find the row under the finger.
+let dragInfo = null;
+const clearDragover = () => document.querySelectorAll('.trow.dragover').forEach((r) => r.classList.remove('dragover'));
+document.addEventListener('pointerdown', (e) => {
+  const grip = e.target.closest('.grip');
+  if (!grip) return;
+  const row = grip.closest('.trow');
+  dragInfo = { g: row.dataset.g, t: row.dataset.t, row };
+  row.classList.add('dragging');
+  if (grip.setPointerCapture) grip.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+document.addEventListener('pointermove', (e) => {
+  if (!dragInfo) return;
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const over = el && el.closest('.trow');
+  clearDragover();
+  if (over && over.dataset.g === dragInfo.g && over.dataset.t !== dragInfo.t) over.classList.add('dragover');
+});
+document.addEventListener('pointerup', (e) => {
+  if (!dragInfo) return;
+  const d = dragInfo;
+  dragInfo = null;
+  d.row.classList.remove('dragging');
+  clearDragover();
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const over = el && el.closest('.trow');
+  if (!over || over.dataset.g !== d.g || over.dataset.t === d.t) return;
+  const ord = orderOf(d.g);
+  const from = ord.indexOf(d.t), to = ord.indexOf(over.dataset.t);
+  if (from < 0 || to < 0) return;
+  trackBracket();
+  ord.splice(to, 0, ord.splice(from, 1)[0]);
+  S.user.order[d.g] = ord;
+  withFlip($('groups'), render);
+});
+document.addEventListener('pointercancel', () => {
+  if (!dragInfo) return;
+  dragInfo.row.classList.remove('dragging');
+  clearDragover();
+  dragInfo = null;
+});
+// iOS belt-and-braces: while a drag is live, block the page scroll at the
+// touch level too. If Safari wins the gesture it fires pointercancel and the
+// drag silently dies — this keeps the pointer stream alive. Must be
+// non-passive, listeners are passive by default for touchmove.
+document.addEventListener('touchmove', (e) => {
+  if (dragInfo) e.preventDefault();
+}, { passive: false });
+
+$('resetall').addEventListener('click', () => {
+  S.user = { order: {}, thirds: null, picks: {} };
+  render();
+});
+
+/* ═══════════════════════ PERSISTENCE / BOOT ═════════════════════════ */
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S.user)); } catch { /* private mode */ } }
+function load() {
+  try { const u = JSON.parse(localStorage.getItem(STORE_KEY)); if (u && u.order) S.user = { picks: {}, thirds: null, ...u }; }
+  catch { /* corrupt/absent */ }
+}
+
+// Single initial load — the predictor is a snapshot of the bracket as priced
+// right now; it does not need a live feed or polling.
+async function boot() {
+  load();
+  try {
+    const [events] = await Promise.all([fetchSeries(), fetchWinnerOdds()]);
+    buildModel(events);
+    if (!S.groups.size || S.matches.length < 30) throw new Error('incomplete data (' + S.matches.length + ' matches)');
+    S.loadedAt = new Date();
+    $('loading').hidden = true;
+    $('groups-section').hidden = false;
+    $('thirds-section').hidden = false;
+    $('bracket-section').hidden = false;
+    render();
+  } catch (err) {
+    console.error(err);
+    $('loading').hidden = true;
+    const el = $('error');
+    el.hidden = false;
+    el.innerHTML = '<strong>Couldn\'t load Polymarket data.</strong><br>' + esc(err.message) + '<br><br><button class="iconbtn" onclick="location.reload()">Retry</button>';
+  }
+}
+
+boot();
+</script>
+
+<!-- First-party visit beacon → Cloudflare Worker /t (proxy/tracker.js).
+     Stores country (from CF edge) + page + ?ref= channel. No cookies, no IP.
+     Exposes window.gfTrack(evt) so the bracket records engagement (evt:'bracket')
+     on the same beacon. Opt out on your own devices:
+     localStorage.setItem('gf-notrack', '1') -->
+<script>
+(function () {
+  function gfTrack(evt) {
+    try {
+      if (localStorage.getItem('gf-notrack')) return;
+      var ref = new URLSearchParams(location.search).get('ref') || '';
+      if (ref) sessionStorage.setItem('gf-ref', ref);
+      else ref = sessionStorage.getItem('gf-ref') || '';
+      var data = JSON.stringify({ page: location.pathname, ref: ref, evt: evt || 'view' });
+      var url = 'https://gonnafind.com/t';
+      if (!(navigator.sendBeacon && navigator.sendBeacon(url, data))) {
+        fetch(url, { method: 'POST', body: data, keepalive: true }).catch(function () {});
+      }
+    } catch (e) { /* tracking must never break the app */ }
+  }
+  window.gfTrack = gfTrack;
+  gfTrack('view');
+})();
+</script>
+</body>
+</html>

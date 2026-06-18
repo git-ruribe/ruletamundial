@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>Visitor Medal Board 🏅 — gonnafind.com</title>
+  <meta name="description" content="Live medal table of countries visiting the World Cup Wheel and Bracket Predictor. Which nation tops the board today?" />
+  <link rel="canonical" href="https://gonnafind.com/flags/" />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#0d1117" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="World Cup Wheel" />
+  <meta property="og:title" content="Visitor Medal Board 🏅" />
+  <meta property="og:description" content="Live country ranking of visitors to the World Cup Wheel. Is your flag on the podium?" />
+  <meta property="og:url" content="https://gonnafind.com/flags/" />
+  <meta property="og:image" content="https://gonnafind.com/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+
+<style>
+:root {
+  --bg: #0d1117; --card: #161b22; --border: #30363d;
+  --text: #e6edf3; --muted: #8b949e;
+  --gold: #ffd700; --silver: #c0c0c0; --bronze: #cd7f32;
+  --green: #3fb950; --accent: #58a6ff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { color-scheme: dark; }
+body {
+  background: var(--bg); color: var(--text); min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  display: flex; flex-direction: column; align-items: center;
+  padding: 24px 14px 40px;
+}
+.wrap { width: 100%; max-width: 680px; }
+
+header { text-align: center; margin-bottom: 18px; }
+header h1 { font-size: 1.6rem; letter-spacing: 0.5px; }
+header p { color: var(--muted); margin-top: 6px; font-size: 0.95rem; }
+.nav { display: flex; gap: 10px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+.nav a {
+  color: var(--accent); text-decoration: none; font-size: 0.9rem;
+  border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px;
+  background: var(--card); transition: border-color 0.2s;
+}
+.nav a:hover { border-color: var(--accent); }
+
+.totals {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0;
+}
+.tot {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 8px; text-align: center;
+}
+.tot b { display: block; font-size: 1.45rem; font-variant-numeric: tabular-nums; }
+.tot span { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; }
+
+/* ── Podium ── */
+.podium {
+  display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 10px;
+  align-items: end; margin: 22px 0 26px;
+}
+.step {
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px 14px 8px 8px;
+  text-align: center; padding: 14px 8px 12px; position: relative;
+  animation: rise 0.6s cubic-bezier(0.2, 0.8, 0.3, 1.1) backwards;
+}
+.step.gold   { border-color: var(--gold);   padding-top: 22px; animation-delay: 0.25s; }
+.step.silver { border-color: var(--silver); animation-delay: 0.1s; }
+.step.bronze { border-color: var(--bronze); animation-delay: 0.4s; }
+.step .medal { font-size: 1.5rem; position: absolute; top: -16px; left: 50%; transform: translateX(-50%); }
+.step img { width: 64px; height: 48px; object-fit: cover; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.5); }
+.step.gold img { width: 80px; height: 60px; }
+.step .cname { margin-top: 8px; font-weight: 600; font-size: 0.95rem; }
+.step .cnum { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.step.gold .cnum { color: var(--gold); font-size: 1.6rem; }
+.step .sub { color: var(--muted); font-size: 0.75rem; }
+@keyframes rise { from { opacity: 0; transform: translateY(26px); } }
+
+/* ── Table ── */
+.board { background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.row {
+  display: grid; grid-template-columns: 44px 44px 1fr auto auto; gap: 10px;
+  align-items: center; padding: 10px 14px; border-top: 1px solid var(--border);
+  animation: fadein 0.45s ease backwards; cursor: default;
+}
+.row:first-child { border-top: none; }
+.row.expandable { cursor: pointer; }
+.row.expandable:hover { background: rgba(88, 166, 255, 0.06); }
+.rank { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 600; text-align: center; }
+.rank.m1 { color: var(--gold); } .rank.m2 { color: var(--silver); } .rank.m3 { color: var(--bronze); }
+.row img { width: 36px; height: 27px; object-fit: cover; border-radius: 4px; }
+.noflag { width: 36px; text-align: center; font-size: 1.3rem; }
+.name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name .chev { color: var(--muted); font-size: 0.7rem; margin-left: 6px; }
+.delta {
+  color: var(--green); font-size: 0.78rem; font-weight: 600;
+  background: rgba(63, 185, 80, 0.12); border-radius: 999px; padding: 3px 9px;
+  font-variant-numeric: tabular-nums;
+}
+.num { font-weight: 700; font-size: 1.05rem; font-variant-numeric: tabular-nums; min-width: 3.2ch; text-align: right; }
+@keyframes fadein { from { opacity: 0; transform: translateX(-12px); } }
+
+.sub-rows { border-top: 1px dashed var(--border); background: rgba(13, 17, 23, 0.55); }
+.sub-rows[hidden] { display: none; }
+.srow {
+  display: grid; grid-template-columns: 88px 1fr auto; gap: 10px;
+  padding: 7px 14px 7px 28px; color: var(--muted); font-size: 0.88rem;
+  border-top: 1px solid rgba(48, 54, 61, 0.45);
+}
+.srow:first-child { border-top: none; }
+.srow b { color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
+.srow .pin { text-align: right; font-size: 0.8rem; }
+
+.state { text-align: center; color: var(--muted); padding: 40px 0; }
+.foot { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top: 20px; line-height: 1.6; }
+.foot a { color: var(--accent); text-decoration: none; }
+.updated { text-align: center; color: var(--muted); font-size: 0.78rem; margin-top: 14px; }
+.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); margin-right: 5px; animation: pulse 2s infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>🏅 Visitor Medal Board</h1>
+    <p>Which country shows up the most? Live ranking of visits to the World Cup Wheel.</p>
+    <div class="nav">
+      <a href="/">🎡 Spin the Wheel</a>
+      <a href="/predictor.html">🔮 Bracket Predictor</a>
+    </div>
+  </header>
+
+  <div class="totals" id="totals" hidden>
+    <div class="tot"><b id="t-total">–</b><span>Total visits</span></div>
+    <div class="tot"><b id="t-countries">–</b><span>Countries</span></div>
+    <div class="tot"><b id="t-24h">–</b><span>Last 24 h</span></div>
+  </div>
+
+  <div id="loading" class="state">Loading the medal table…</div>
+  <div id="error" class="state" hidden></div>
+
+  <div class="podium" id="podium" hidden></div>
+  <div class="board" id="board" hidden></div>
+
+  <p class="updated" id="updated" hidden></p>
+
+  <p class="foot">
+    Counted by our own first-party tracker on Cloudflare's edge — country, region
+    and city only. No cookies, no IPs stored, nothing sold.
+    Legacy totals imported from Flag Counter.<br>
+    <a href="/">gonnafind.com</a> · For entertainment only.
+  </p>
+</div>
+
+<script>
+'use strict';
+const STATS_URL = 'https://gonnafind.com/t/stats';
+const REFRESH_MS = 60_000;
+const $ = (id) => document.getElementById(id);
+
+const regionNames = (() => {
+  try { return new Intl.DisplayNames(['en'], { type: 'region' }); }
+  catch { return null; }
+})();
+const countryName = (cc) =>
+  cc === 'XX' ? 'Unknown' : (regionNames && regionNames.of(cc)) || cc;
+
+const flagImg = (cc, big) => cc === 'XX'
+  ? '<span class="noflag">🌐</span>'
+  : '<img src="https://flagcdn.com/' + (big ? 'w160' : 'w80') + '/' + cc.toLowerCase()
+    + '.png" alt="' + cc + ' flag" loading="lazy" onerror="this.outerHTML=\'<span class=noflag>🏳️</span>\'">';
+
+const fmt = (n) => n.toLocaleString('en-US');
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+let openCountries = new Set();
+
+function render(data) {
+  $('loading').hidden = true; $('error').hidden = true;
+  const list = data.countries || [];
+  if (!list.length) {
+    $('error').textContent = 'No visits recorded yet — be the first flag on the board!';
+    $('error').hidden = false;
+    return;
+  }
+
+  $('totals').hidden = false;
+  $('t-total').textContent = fmt(data.total || 0);
+  $('t-countries').textContent = fmt(list.length);
+  $('t-24h').textContent = fmt(data.last24h || 0);
+
+  // group region/city detail per country (prefer regions, fall back to cities)
+  const detail = new Map();
+  for (const r of data.regions || []) {
+    if (!detail.has(r.c)) detail.set(r.c, []);
+    detail.get(r.c).push({ label: r.rg, n: r.n, kind: 'region' });
+  }
+  for (const c of data.cities || []) {
+    if (!detail.has(c.c)) detail.set(c.c, []);
+    const d = detail.get(c.c);
+    if (!d.some((x) => x.kind === 'region')) d.push({ label: c.ci, n: c.n, kind: 'city' });
+  }
+  for (const d of detail.values()) d.sort((a, b) => b.n - a.n);
+
+  // ── podium: visual order silver · gold · bronze ──
+  const podium = $('podium');
+  const medals = ['gold', 'silver', 'bronze'];
+  const emoji = ['🥇', '🥈', '🥉'];
+  const steps = [1, 0, 2].filter((i) => list[i]).map((i) => {
+    const r = list[i];
+    return '<div class="step ' + medals[i] + '">'
+      + '<span class="medal">' + emoji[i] + '</span>'
+      + flagImg(r.c, i === 0)
+      + '<div class="cname">' + esc(countryName(r.c)) + '</div>'
+      + '<div class="cnum">' + fmt(r.n) + '</div>'
+      + '<div class="sub">visits' + (r.d ? ' · +' + fmt(r.d) + ' today' : '') + '</div>'
+      + '</div>';
+  });
+  podium.innerHTML = steps.join('');
+  podium.hidden = false;
+
+  // ── full table ──
+  const board = $('board');
+  board.innerHTML = list.map((r, i) => {
+    const det = detail.get(r.c) || [];
+    const expandable = det.length > 0;
+    const open = openCountries.has(r.c);
+    const rankCls = i < 3 ? ' m' + (i + 1) : '';
+    const rank = i < 3 ? emoji[i] : i + 1;
+    return '<div class="row' + (expandable ? ' expandable' : '') + '" data-c="' + r.c + '"'
+      + ' style="animation-delay:' + Math.min(i * 0.04, 0.8) + 's">'
+      + '<span class="rank' + rankCls + '">' + rank + '</span>'
+      + flagImg(r.c)
+      + '<span class="name">' + esc(countryName(r.c))
+      + (expandable ? '<span class="chev">' + (open ? '▲' : '▼') + '</span>' : '') + '</span>'
+      + (r.d ? '<span class="delta">+' + fmt(r.d) + ' today</span>' : '<span></span>')
+      + '<span class="num">' + fmt(r.n) + '</span>'
+      + '</div>'
+      + (expandable
+        ? '<div class="sub-rows"' + (open ? '' : ' hidden') + ' data-sub="' + r.c + '">'
+          + det.slice(0, 12).map((d) =>
+              '<div class="srow"><span class="pin">' + (d.kind === 'city' ? '📍' : '🗺') + '</span>'
+              + '<span>' + esc(d.label) + '</span><b>' + fmt(d.n) + '</b></div>'
+            ).join('')
+          + '</div>'
+        : '');
+  }).join('');
+  board.hidden = false;
+
+  $('updated').innerHTML = '<span class="live-dot"></span>auto-refreshes every minute · updated '
+    + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  $('updated').hidden = false;
+}
+
+document.addEventListener('click', (e) => {
+  const row = e.target.closest('.row.expandable');
+  if (!row) return;
+  const c = row.dataset.c;
+  const sub = document.querySelector('[data-sub="' + c + '"]');
+  if (!sub) return;
+  sub.hidden = !sub.hidden;
+  if (sub.hidden) openCountries.delete(c); else openCountries.add(c);
+  const chev = row.querySelector('.chev');
+  if (chev) chev.textContent = sub.hidden ? '▼' : '▲';
+});
+
+async function load() {
+  try {
+    const res = await fetch(STATS_URL, { headers: { accept: 'application/json' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    render(await res.json());
+  } catch (err) {
+    $('loading').hidden = true;
+    if ($('board').hidden) {
+      $('error').textContent = 'Couldn’t load the medal table (' + err.message + '). Retrying soon…';
+      $('error').hidden = false;
+    }
+  }
+}
+
+load();
+setInterval(load, REFRESH_MS);
+</script>
+</body>
+</html>

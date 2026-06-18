@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Live Debug — gonnafind</title>
+<style>
+:root { --bg:#0d1117; --card:#161b22; --bd:#30363d; --tx:#e6edf3; --mu:#8b949e;
+  --ok:#3fb950; --warn:#ffd23f; --err:#f85149; --accent:#58a6ff; }
+* { box-sizing:border-box; margin:0; padding:0; }
+html { color-scheme:dark; }
+body { background:var(--bg); color:var(--tx); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  padding:14px; max-width:780px; margin:0 auto; }
+h1 { font-size:1.15rem; margin-bottom:4px; }
+.sub { color:var(--mu); font-size:0.82rem; margin-bottom:12px; }
+.bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+button { background:var(--card); color:var(--accent); border:1px solid var(--bd);
+  border-radius:8px; padding:8px 14px; font-size:0.9rem; font-weight:600; cursor:pointer; }
+button:hover { border-color:var(--accent); }
+.meta { color:var(--mu); font-size:0.8rem; }
+.meta b { color:var(--tx); }
+.src { font-size:0.78rem; padding:2px 8px; border-radius:999px; border:1px solid var(--bd); }
+.src.gamma { color:var(--ok); } .src.proxy { color:var(--warn); } .src.err { color:var(--err); }
+.match { background:var(--card); border:1px solid var(--bd); border-radius:12px; padding:12px 14px; margin-bottom:10px; }
+.match h2 { font-size:1rem; margin-bottom:8px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:8px; }
+.cell { background:var(--bg); border:1px solid var(--bd); border-radius:8px; padding:7px 9px; }
+.cell .k { color:var(--mu); font-size:0.7rem; text-transform:uppercase; letter-spacing:0.04em; }
+.cell .v { font-size:1.05rem; font-weight:700; font-variant-numeric:tabular-nums; word-break:break-word; }
+.cell.live .v { color:var(--ok); } .cell.changed { animation:flash 1.2s ease; border-color:var(--warn); }
+@keyframes flash { 0%{background:rgba(255,210,63,0.25);} 100%{background:var(--bg);} }
+.flags { display:flex; gap:6px; align-items:center; margin:8px 0; font-weight:700; }
+.flags img { width:24px; height:18px; object-fit:cover; border-radius:3px; }
+.pc { color:var(--mu); font-size:0.78rem; margin-top:8px; }
+.pc b { color:var(--tx); }
+.log { background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:10px 12px;
+  font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--mu);
+  max-height:200px; overflow:auto; white-space:pre-wrap; word-break:break-word; }
+.empty { color:var(--mu); padding:30px 0; text-align:center; }
+a { color:var(--accent); }
+</style>
+</head>
+<body>
+  <h1>🛰 Live Debug</h1>
+  <p class="sub">Lee <code>/events?series_id=11433</code> con anti-caché y muestra solo los campos del feed en vivo. Úsalo con un partido en curso para ver si el web service entrega datos frescos.</p>
+
+  <div class="bar">
+    <button id="toggle">⏸ Pausar</button>
+    <button id="now">↻ Ahora</button>
+    <span id="src" class="src">—</span>
+    <span class="meta">cada <b id="iv">10</b>s · fetch #<b id="n">0</b> · <b id="when">—</b></span>
+  </div>
+
+  <div id="matches"></div>
+  <div id="empty" class="empty">Buscando partidos en vivo…</div>
+
+  <h2 style="font-size:0.95rem;margin:18px 0 6px">🔌 WebSocket (CLOB market)</h2>
+  <p class="sub">Se suscribe a los tokens del partido en vivo y escucha el WSS de Polymarket. Comprueba si el marcador llega por aquí (push) o solo por Gamma (REST).</p>
+  <div class="bar">
+    <span id="ws-state" class="src">desconectado</span>
+    <span class="meta">mensajes: <b id="ws-count">0</b> · <b id="ws-types">—</b></span>
+  </div>
+  <div class="match">
+    <div class="cell" style="border:none;background:transparent;padding:0">
+      <div class="k">¿algún mensaje trae marcador? (score/elapsed/period/half)</div>
+      <div class="v" id="ws-verdict">esperando datos…</div>
+    </div>
+  </div>
+  <h2 style="font-size:0.85rem;margin:10px 0 6px;color:var(--mu)">Últimos mensajes WSS (crudos)</h2>
+  <div id="ws-log" class="log">—</div>
+
+  <h2 style="font-size:0.95rem;margin:18px 0 6px">🏟 Sports WebSocket (marcadores)</h2>
+  <p class="sub">Endpoint dedicado <code>wss://sports-api.polymarket.com/ws</code>. Sin suscripción: empuja todos los partidos activos cuando cambia el marcador/periodo. Aquí se prueba si entrega marcador por push.</p>
+  <div class="bar">
+    <span id="sp-state" class="src">desconectado</span>
+    <button id="sp-reconnect">↺ Reconectar</button>
+    <span class="meta">mensajes: <b id="sp-count">0</b> · con marcador: <b id="sp-scored">0</b> · WC: <b id="sp-wc">0</b></span>
+  </div>
+  <div class="match">
+    <div class="cell" style="border:none;background:transparent;padding:0">
+      <div class="k">¿el sports WSS trae marcador?</div>
+      <div class="v" id="sp-verdict">esperando datos…</div>
+    </div>
+  </div>
+
+  <h2 style="font-size:0.85rem;margin:14px 0 6px">🌎 Mundial detectado via Sports WSS</h2>
+  <div id="sp-wc-panel" class="match" style="display:none">
+    <div class="flags" id="sp-wc-teams">—</div>
+    <div class="grid" id="sp-wc-grid"></div>
+  </div>
+  <div id="sp-wc-empty" style="color:var(--mu);font-size:0.85rem;padding:8px 0">
+    Esperando un partido de la Copa del Mundo vía Sports WSS…<br>
+    <span style="font-size:0.78rem">(el gameId del REST debe coincidir con el del Sports WSS)</span>
+  </div>
+
+  <h2 style="font-size:0.85rem;margin:10px 0 6px;color:var(--mu)">Últimos mensajes Sports WSS (crudos)</h2>
+  <div id="sp-log" class="log">—</div>
+
+  <h2 style="font-size:0.9rem;margin:14px 0 6px;color:var(--mu)">Bitácora REST</h2>
+  <div id="log" class="log"></div>
+
+<script>
+'use strict';
+const GAMMA = 'https://gamma-api.polymarket.com';
+const PROXY = 'https://wc-proxy.zcv25kyj7b.workers.dev';
+const SERIES = '11433';
+const INTERVAL = 10000;
+const LIVE_WINDOW = 3 * 60 * 60 * 1000;
+
+const $ = (id) => document.getElementById(id);
+let timer = null, count = 0, running = true;
+const prev = new Map();          // event id -> last {score, elapsed, period, live}
+const logLines = [];
+
+function log(msg) {
+  const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  logLines.unshift(`[${t}] ${msg}`);
+  if (logLines.length > 60) logLines.pop();
+  $('log').textContent = logLines.join('\n');
+}
+
+async function fetchEvents() {
+  const qs = `?closed=false&limit=100&offset=0&order=endDate&ascending=true&series_id=${SERIES}&_t=${Date.now()}`;
+  // Try direct Gamma first, then the proxy — report which one answered.
+  try {
+    const r = await fetch(GAMMA + '/events' + qs, { cache:'no-store', headers:{accept:'application/json'} });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    $('src').className = 'src gamma'; $('src').textContent = 'Gamma directo';
+    return await r.json();
+  } catch (e1) {
+    try {
+      const r = await fetch(PROXY + '/events' + qs, { cache:'no-store', headers:{accept:'application/json'} });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      $('src').className = 'src proxy'; $('src').textContent = 'Proxy CF';
+      return await r.json();
+    } catch (e2) {
+      $('src').className = 'src err'; $('src').textContent = 'Sin conexión';
+      log('ERROR: ' + e1.message + ' / ' + e2.message);
+      return null;
+    }
+  }
+}
+
+function isLiveEv(ev) {
+  if (ev.live === true) return true;
+  if (ev.ended === true) return false;
+  const s = ev.startTime ? Date.parse(ev.startTime) : NaN;
+  if (Number.isNaN(s)) return false;
+  const now = Date.now();
+  return now >= s && now < s + LIVE_WINDOW;
+}
+
+function cell(k, v, opts = {}) {
+  const cls = 'cell' + (opts.live ? ' live' : '') + (opts.changed ? ' changed' : '');
+  return `<div class="${cls}"><div class="k">${k}</div><div class="v">${v == null || v === '' ? '—' : v}</div></div>`;
+}
+
+function pcField(m, name) {
+  const v = m[name];
+  return v == null ? '—' : (v > 0 ? '+' : '') + (v * 100).toFixed(1) + 'pp';
+}
+
+async function tick() {
+  count++; $('n').textContent = count;
+  $('when').textContent = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const data = await fetchEvents();
+  if (!data) return;
+
+  const live = data.filter(isLiveEv);
+  if (!live.length) {
+    $('matches').innerHTML = '';
+    $('empty').style.display = 'block';
+    $('empty').textContent = `Sin partidos en vivo ahora (${data.length} eventos recibidos).`;
+    if (count === 1) log(`${data.length} eventos, 0 en vivo.`);
+    return;
+  }
+  $('empty').style.display = 'none';
+
+  $('matches').innerHTML = live.map((ev) => {
+    const teams = ev.teams || [];
+    const home = teams.find(t => t.ordering === 'home') || teams[0] || {};
+    const away = teams.find(t => t.ordering === 'away') || teams[1] || {};
+    const p = prev.get(ev.id) || {};
+    const changed = (k) => p[k] !== undefined && String(p[k]) !== String(ev[k]);
+
+    // detect & log changes — elapsed/updatedAt moving during active play is
+    // the proof the anti-cache works (a frozen updatedAt only proves caching
+    // if the game is NOT at halftime / paused).
+    if (changed('score')) log(`⚽ ${ev.title}: marcador ${p.score} → ${ev.score} (min ${ev.elapsed})`);
+    if (changed('period')) log(`⏱ ${ev.title}: periodo ${p.period} → ${ev.period}`);
+    if (changed('elapsed')) log(`▶ ${ev.title}: minuto ${p.elapsed} → ${ev.elapsed}`);
+    if (changed('updatedAt')) log(`🔄 ${ev.title}: updatedAt avanzó → ${new Date(ev.updatedAt).toLocaleTimeString()}`);
+    if (p.live !== undefined && p.live !== ev.live) log(`🔔 ${ev.title}: live ${p.live} → ${ev.live}`);
+
+    // Age of the data: seconds since Polymarket last changed this record.
+    const ageSec = ev.updatedAt ? Math.round((Date.now() - Date.parse(ev.updatedAt)) / 1000) : null;
+    const ageStr = ageSec == null ? '—' : ageSec + 's';
+    const ageCls = ageSec == null ? '' : ageSec > 90 ? ' changed' : ' live';
+
+    prev.set(ev.id, { score: ev.score, elapsed: ev.elapsed, period: ev.period, live: ev.live, updatedAt: ev.updatedAt });
+
+    const ml = (ev.markets || []).filter(m => m.sportsMarketType === 'moneyline');
+    const pcRows = ml.map(m =>
+      `<div class="pc">${m.groupItemTitle}: precio <b>${m.outcomePrices ? JSON.parse(m.outcomePrices)[0] : '?'}</b> · `
+      + `1h ${pcField(m,'oneHourPriceChange')} · 1d ${pcField(m,'oneDayPriceChange')}</div>`
+    ).join('');
+
+    return `<div class="match">
+      <h2>${ev.title || ev.slug}</h2>
+      <div class="flags">
+        ${home.logo ? `<img src="${home.logo}" alt="">` : ''} ${home.name || '?'}
+        <span style="margin:0 8px">${ev.score || '–'}</span>
+        ${away.name || '?'} ${away.logo ? `<img src="${away.logo}" alt="">` : ''}
+      </div>
+      <div class="grid">
+        ${cell('score', ev.score, { changed: changed('score') })}
+        ${cell('elapsed', ev.elapsed != null ? ev.elapsed + "'" : null, { changed: changed('elapsed') })}
+        ${cell('period', ev.period, { changed: changed('period') })}
+        ${cell('live', String(ev.live), { live: ev.live === true })}
+        ${cell('ended', String(ev.ended))}
+        ${cell('updatedAt', ev.updatedAt ? new Date(ev.updatedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : null)}
+        <div class="cell${ageCls}"><div class="k">dato de hace</div><div class="v">${ageStr}</div></div>
+        ${cell('gameId', ev.gameId)}
+      </div>
+      ${pcRows}
+    </div>`;
+  }).join('');
+
+  indexRestGameIds(live);
+  ensureWss(live);
+}
+
+/* ───────────────────────── WebSocket inspector ───────────────────────── */
+const WSS = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
+const ws = { sock: null, tokens: '', count: 0, types: {}, keep: null };
+const SCORE_KEYS = /score|elapsed|period|half|minute|clock|"live"/i;
+
+function tokensOf(live) {
+  // Yes-outcome CLOB token of each moneyline market of the first live match.
+  const ev = live.find((e) => (e.markets || []).some((m) => m.sportsMarketType === 'moneyline'));
+  if (!ev) return [];
+  const out = [];
+  for (const m of ev.markets || []) {
+    if (m.sportsMarketType !== 'moneyline' || !m.clobTokenIds) continue;
+    try { const ids = JSON.parse(m.clobTokenIds); if (ids[0]) out.push(String(ids[0])); } catch {}
+  }
+  return out;
+}
+
+function ensureWss(live) {
+  const tokens = tokensOf(live);
+  if (!tokens.length) return;
+  const key = tokens.join(',');
+  if (ws.sock && ws.tokens === key && ws.sock.readyState <= 1) return; // already on it
+  openWss(tokens, key);
+}
+
+function openWss(tokens, key) {
+  try { if (ws.sock) ws.sock.close(); } catch {}
+  if (ws.keep) clearInterval(ws.keep);
+  ws.count = 0; ws.types = {}; ws.tokens = key;
+  $('ws-state').className = 'src'; $('ws-state').textContent = 'conectando…';
+  let sock;
+  try { sock = new WebSocket(WSS); } catch (e) {
+    $('ws-state').className = 'src err'; $('ws-state').textContent = 'WSS bloqueado';
+    return;
+  }
+  ws.sock = sock;
+  sock.onopen = () => {
+    $('ws-state').className = 'src gamma'; $('ws-state').textContent = 'conectado · ' + tokens.length + ' tokens';
+    sock.send(JSON.stringify({ type: 'market', assets_ids: tokens }));
+    ws.keep = setInterval(() => { if (sock.readyState === 1) sock.send('PING'); }, 5000);
+    log('WSS conectado, ' + tokens.length + ' tokens.');
+  };
+  sock.onmessage = (e) => {
+    if (typeof e.data !== 'string' || e.data === 'PONG' || e.data === 'PING') return;
+    ws.count++; $('ws-count').textContent = ws.count;
+    let arr;
+    try { arr = JSON.parse(e.data); } catch { return; }
+    arr = Array.isArray(arr) ? arr : [arr];
+    for (const msg of arr) {
+      const ty = (msg && (msg.event_type || msg.type)) || '?';
+      ws.types[ty] = (ws.types[ty] || 0) + 1;
+    }
+    $('ws-types').textContent = Object.entries(ws.types).map(([k, v]) => k + ':' + v).join(' · ');
+    // Verdict: does ANY raw message contain score-like keys?
+    if (SCORE_KEYS.test(e.data) && /score|elapsed|period|half|minute|clock/i.test(e.data)) {
+      $('ws-verdict').textContent = '⚠️ SÍ — el WSS trae campos de marcador (revisar abajo)';
+      $('ws-verdict').style.color = 'var(--warn)';
+    } else if ($('ws-verdict').textContent === 'esperando datos…') {
+      $('ws-verdict').textContent = '❌ NO — solo precios (book/price_change/last_trade_price)';
+      $('ws-verdict').style.color = 'var(--mu)';
+    }
+    // Show the latest raw message, truncated.
+    $('ws-log').textContent = e.data.slice(0, 1200) + (e.data.length > 1200 ? '…' : '');
+  };
+  sock.onclose = () => {
+    if (ws.sock !== sock) return;
+    $('ws-state').className = 'src err'; $('ws-state').textContent = 'cerrado';
+    if (ws.keep) clearInterval(ws.keep);
+  };
+  sock.onerror = () => { $('ws-state').className = 'src err'; $('ws-state').textContent = 'error WSS'; };
+}
+
+/* ─────────────────────── Sports WebSocket inspector ──────────────────── */
+const SPORTS_WSS = 'wss://sports-api.polymarket.com/ws';
+const sp = { sock: null, count: 0, scored: 0, wc: 0, retry: 0, reconnTimer: null };
+
+// gameId → { title, home, away, homeLogo, awayLogo } — built from REST ticks
+const restByGameId = new Map();
+
+function indexRestGameIds(live) {
+  for (const ev of live) {
+    if (ev.gameId == null) continue;
+    const teams = ev.teams || [];
+    const home = teams.find(t => t.ordering === 'home') || teams[0] || {};
+    const away = teams.find(t => t.ordering === 'away') || teams[1] || {};
+    restByGameId.set(String(ev.gameId), {
+      title: ev.title || ev.slug,
+      home: home.name || '?', away: away.name || '?',
+      homeLogo: home.logo || '', awayLogo: away.logo || '',
+    });
+  }
+}
+
+function openSportsWss() {
+  if (sp.sock && sp.sock.readyState <= WebSocket.OPEN) return;
+  if (sp.reconnTimer) { clearTimeout(sp.reconnTimer); sp.reconnTimer = null; }
+  $('sp-state').className = 'src'; $('sp-state').textContent = 'conectando…';
+  let sock;
+  try { sock = new WebSocket(SPORTS_WSS); } catch (e) {
+    $('sp-state').className = 'src err'; $('sp-state').textContent = 'WSS bloqueado';
+    return;
+  }
+  sp.sock = sock;
+  sock.onopen = () => {
+    sp.retry = 0;
+    $('sp-state').className = 'src gamma'; $('sp-state').textContent = 'conectado (sin suscripción)';
+    log('Sports WSS conectado.');
+  };
+  sock.onmessage = (e) => {
+    if (e.data === 'PING' || e.data === 'ping') { try { sock.send('PONG'); } catch {} return; }
+    if (typeof e.data !== 'string') return;
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    const list = Array.isArray(msg) ? msg : [msg];
+    for (const m of list) {
+      if (!m) continue;
+      sp.count++;
+      const hasScore = m.score != null || m.period != null || m.elapsed != null;
+      if (hasScore) {
+        sp.scored++;
+        $('sp-verdict').textContent = '✅ SÍ — el sports WSS empuja marcador en tiempo real';
+        $('sp-verdict').style.color = 'var(--ok)';
+
+        // Cross-check: is this gameId one of our REST World Cup matches?
+        const gid = String(m.gameId || '');
+        const wc = restByGameId.get(gid);
+        if (wc) {
+          sp.wc++;
+          $('sp-wc').textContent = sp.wc;
+          $('sp-wc-empty').style.display = 'none';
+          $('sp-wc-panel').style.display = '';
+
+          // Score parsing
+          const sc = String(m.score || '').match(/^(\d+)\s*-\s*(\d+)$/);
+          const scoreStr = sc ? `${sc[1]} – ${sc[2]}` : (m.score || '?');
+
+          $('sp-wc-teams').innerHTML =
+            (wc.homeLogo ? `<img src="${wc.homeLogo}" alt="">` : '') +
+            ` ${wc.home} <span style="margin:0 10px;font-size:1.2rem">${scoreStr}</span> ${wc.away} ` +
+            (wc.awayLogo ? `<img src="${wc.awayLogo}" alt="">` : '');
+
+          $('sp-wc-grid').innerHTML = [
+            cell('gameId', gid, { live: true }),
+            cell('score (WSS)', m.score),
+            cell('elapsed', m.elapsed != null ? m.elapsed + "'" : null),
+            cell('period', m.period),
+            cell('live', String(m.live), { live: m.live === true }),
+            cell('ended', String(m.ended)),
+          ].join('');
+
+          const t = new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+          log(`🌎⚡ WC match via Sports WSS: ${wc.title} | ${m.score} · ${m.period || ''} ${m.elapsed != null ? m.elapsed + "'" : ''} · gameId=${gid} @ ${t}`);
+        } else {
+          // Non-WC match with score — log briefly if soccer-ish
+          const lg = (m.leagueAbbreviation || m.league || '').toLowerCase();
+          if (/fif|soccer/.test(lg)) {
+            log(`⚽ (otro) gameId=${gid}: ${m.score} · ${m.period || ''} ${m.elapsed != null ? m.elapsed + "'" : ''}`);
+          }
+        }
+      } else if (sp.count === 1) {
+        $('sp-verdict').textContent = '… recibiendo, sin marcador aún';
+      }
+    }
+    $('sp-count').textContent = sp.count;
+    $('sp-scored').textContent = sp.scored;
+    $('sp-log').textContent = e.data.slice(0, 1200) + (e.data.length > 1200 ? '…' : '');
+  };
+  sock.onclose = () => {
+    if (sp.sock !== sock) return;
+    sp.sock = null;
+    $('sp-state').className = 'src err'; $('sp-state').textContent = 'cerrado · reconectando…';
+    // Exponential backoff reconnect (max 30s)
+    const delay = Math.min(30000, 1000 * 2 ** sp.retry++);
+    sp.reconnTimer = setTimeout(openSportsWss, delay);
+  };
+  sock.onerror = () => { $('sp-state').className = 'src err'; $('sp-state').textContent = 'error WSS'; };
+}
+
+$('sp-reconnect').onclick = () => {
+  if (sp.sock) { try { sp.sock.close(); } catch {} }
+  sp.retry = 0;
+  openSportsWss();
+  log('Sports WSS reconexión manual.');
+};
+
+function schedule() {
+  if (timer) clearInterval(timer);
+  if (running) timer = setInterval(tick, INTERVAL);
+}
+
+$('toggle').onclick = () => {
+  running = !running;
+  $('toggle').textContent = running ? '⏸ Pausar' : '▶ Reanudar';
+  schedule();
+  log(running ? 'Reanudado.' : 'Pausado.');
+};
+$('now').onclick = tick;
+$('iv').textContent = INTERVAL / 1000;
+
+log('Iniciado.');
+openSportsWss(); // sports feed is global — connect immediately, independent of REST
+tick();
+schedule();
+</script>
+</body>
+</html>
