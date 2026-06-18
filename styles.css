@@ -339,6 +339,21 @@ html, body {
   letter-spacing: 0.04em;
 }
 
+/* "Unexpected swing": the market jumped but the score feed hasn't confirmed it
+   yet. Amber + gentle pulse signals a provisional state, not a final score. */
+.match-info__swing {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #ffd23f;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  animation: swing-pulse 1.1s ease-in-out infinite;
+}
+@keyframes swing-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
 /* Goal flash: brief gold burst when Sports WSS reports a new goal */
 @keyframes goal-flash {
   0%   { background: rgba(255, 210, 63, 0.55); transform: scale(1.06); }

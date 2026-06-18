@@ -95,6 +95,12 @@ const state = {
   current: null, // { title, sections: [{label, prob, color}], endDate }
   rotation: 0, // radians
   spinning: false,
+  // A goal-signal price swing on the selected match that the scoreline feed
+  // hasn't confirmed yet. The CLOB price stream reacts to a goal seconds before
+  // Sportradar's score lands, so we surface "unexpected swing" in place of the
+  // clock until the new score is confirmed (real goal) or it times out (a
+  // VAR-overturned goal or price noise that never produces a score change).
+  swing: null, // { matchId, at, baseScore }
 };
 
 /* ------------------------------ ELEMENTS --------------------------------- */
@@ -719,6 +725,7 @@ function defaultMatchIndex() {
 }
 
 function selectMatch(index) {
+  clearSwing(); // a pending swing belongs to the previously selected match
   state.current = state.matches[index];
   el.select.value = String(index); // keep the dropdown in sync when called programmatically
   state.rotation = 0;
@@ -1024,8 +1031,21 @@ function renderScore(m) {
     span('match-info__team', m.away.name),
     flag(m.away)
   );
-  const clk = clockLabel(m);
   box.replaceChildren(line);
+
+  // While a goal-signal swing is unconfirmed, the displayed score is stale (the
+  // market moved but Sportradar hasn't caught up). Replace the clock with an
+  // "unexpected swing" notice and skip the model strip — its probabilities,
+  // computed from the stale score, would contradict the wheel until the score
+  // lands. The badge clears in resolveSwing (score confirmed or timed out).
+  const swingPending = state.swing && state.swing.matchId === m.id;
+  if (swingPending) {
+    box.append(span('match-info__swing', '⚡ Unexpected swing — confirming score…'));
+    box.hidden = false;
+    return true;
+  }
+
+  const clk = clockLabel(m);
   if (clk) box.append(span('match-info__clock', clk));
 
   // Model strip: Poisson in-play probabilities vs the live market (wheel).
@@ -1685,6 +1705,7 @@ function handleSportsMessage(data) {
   }
 
   if (currentTouched && !state.spinning) {
+    resolveSwing(state.current); // a confirmed score clears the pending badge
     renderMatchInfo();
     if (goalScored) flashGoalScore();
     // A live↔ended transition may need the price stream started/stopped.
@@ -1783,6 +1804,57 @@ function streamProb(token) {
 const GOAL_SIGNAL_PP = 0.05; // 5 percentage points
 const GOAL_REFRESH_COOLDOWN = 8000; // ms — max one extra refresh per 8s
 
+// How long to keep showing "unexpected swing" while waiting for the score feed
+// to confirm. Past this we assume the swing was VAR-overturned or noise and
+// quietly restore the normal clock — the regular 30s reconciliation continues.
+const SWING_TIMEOUT = 40000; // ms
+const SWING_POLL_MS = 5000;  // while pending, poll REST this often to confirm
+let swingPollTimer = null;
+
+// "H-A" snapshot of a match's current score (or '' when none) — the key we
+// compare against to tell whether the scoreline has actually moved.
+function scoreKey(m) {
+  return m && m.score ? `${m.score.home}-${m.score.away}` : '';
+}
+
+// Flag a pending swing on the current match (no-op if one is already tracked
+// for it) and start polling REST to confirm the new score quickly.
+function flagSwing() {
+  const m = state.current;
+  if (!m) return;
+  if (state.swing && state.swing.matchId === m.id) return; // already pending
+  state.swing = { matchId: m.id, at: Date.now(), baseScore: scoreKey(m) };
+  scheduleSwingPoll();
+  if (!state.spinning) renderMatchInfo(); // surface the badge immediately
+}
+
+function clearSwing() {
+  state.swing = null;
+  if (swingPollTimer) { clearTimeout(swingPollTimer); swingPollTimer = null; }
+}
+
+// Resolve a pending swing for match `m`: clear it once the scoreline has moved
+// (real goal confirmed → returns true) or once it has waited past SWING_TIMEOUT
+// (VAR/noise → returns false). No-op when no swing is pending for this match.
+function resolveSwing(m) {
+  if (!state.swing || !m || state.swing.matchId !== m.id) return false;
+  if (scoreKey(m) !== state.swing.baseScore) { clearSwing(); return true; }
+  if (Date.now() - state.swing.at > SWING_TIMEOUT) clearSwing();
+  return false;
+}
+
+// While a swing is pending, poll REST every few seconds so the score is
+// confirmed fast even if the Sports WSS push is blocked or lagging.
+function scheduleSwingPoll() {
+  if (swingPollTimer) return;
+  swingPollTimer = setTimeout(function tick() {
+    swingPollTimer = null;
+    if (!state.swing) return;
+    refreshLive(); // resolveSwing runs inside, on the fresh score
+    if (state.swing) swingPollTimer = setTimeout(tick, SWING_POLL_MS);
+  }, SWING_POLL_MS);
+}
+
 function applyStreamPrices() {
   stream.applyTimer = null;
   if (state.spinning) { queueStreamApply(); return; } // never resize mid-spin
@@ -1815,12 +1887,15 @@ function applyStreamPrices() {
   // A large swing on the selected match almost certainly means a goal.
   // Trigger an immediate REST refresh to pull the updated scoreline — but
   // debounce hard so a cascade of WSS messages fires at most one extra call.
+  // The score feed lags the market, so also flag the swing so the UI shows
+  // "unexpected swing" until the new score is confirmed (see flagSwing).
   if (maxSwing >= GOAL_SIGNAL_PP && state.current && isLive(state.current)) {
     const now = Date.now();
     if (now - stream.goalRefreshAt > GOAL_REFRESH_COOLDOWN) {
       stream.goalRefreshAt = now;
       refreshLive(); // fire-and-forget; refreshLive is already safe to overlap
     }
+    flagSwing();
   }
 }
 
@@ -1844,7 +1919,10 @@ function onStreamClockTick() {
   renderUpdated();
   // Re-render the score slot every second so the interpolated minute and the
   // model probabilities advance visually without waiting for the 30s REST tick.
-  if (state.current && isLive(state.current) && !state.spinning) renderMatchInfo();
+  if (state.current && isLive(state.current) && !state.spinning) {
+    resolveSwing(state.current); // expire the "unexpected swing" badge on timeout
+    renderMatchInfo();
+  }
 }
 
 // Re-fetch odds without disturbing the current spin/selection/rotation.
@@ -1869,7 +1947,9 @@ async function refreshLive() {
   drawWheel();
   updateLiveBadge();
   updateWhyButton();
+  const swingConfirmed = resolveSwing(state.current); // REST may carry the new score
   renderMatchInfo(); // live/ended adornment may have just changed
+  if (swingConfirmed) flashGoalScore(); // gold burst when the lagging score lands
   // Say what just happened — otherwise a live refresh is indistinguishable
   // from a stale initial snapshot. Includes the refresh time and how the
   // current favourite moved since the previous tick (in percentage points).
