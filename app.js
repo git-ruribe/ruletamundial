@@ -175,18 +175,18 @@ function fitWheel() {
 
 // Fetch JSON with a hard timeout so a blocked/blackholed request (e.g. where
 // Polymarket is geo-blocked) fails fast instead of hanging forever.
-async function getJSON(url, timeoutMs = 10000) {
+async function getJSON(url, timeoutMs = 10000, live = false) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       headers: { accept: 'application/json' },
-      // Live polling reuses identical URLs every 30s; without this the browser
-      // serves a heuristically-cached response (no Cache-Control from Gamma),
-      // freezing the score/minute while the WSS keeps the wheel looking live.
-      // The request still hits the network → Cloudflare edge (≤20s TTL), so
-      // freshness stays well inside the poll interval.
-      cache: 'no-store',
+      // Live polling reuses identical URLs every 30s; `no-store` stops the
+      // browser from serving a heuristically-cached response (Gamma sends no
+      // Cache-Control), which would freeze the score/minute while the WSS keeps
+      // the wheel looking live. We only pay that cost on live refreshes — the
+      // initial discovery load uses the default cache so a reload paints fast.
+      cache: live ? 'no-store' : 'default',
       signal: ctrl.signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} at ${url}`);
@@ -203,16 +203,18 @@ let preferredBase = null;
 // keep whichever responds first (a "hedged" request).
 const HEDGE_MS = 3000;
 
-// GET a Gamma path (e.g. '/events?…' or '/tags/slug/world-cup').
-async function gammaGet(path) {
+// GET a Gamma path (e.g. '/events?…' or '/tags/slug/world-cup'). `live=true`
+// bypasses the HTTP cache (for the 30s in-play poll); the default lets the
+// initial discovery load be served from cache on reloads.
+async function gammaGet(path, live = false) {
   // Known-good base: use it, falling back to the other once on failure.
   if (preferredBase) {
     try {
-      return await getJSON(preferredBase + path);
+      return await getJSON(preferredBase + path, undefined, live);
     } catch (e) {
       const other = preferredBase === CONFIG.gamma ? CONFIG.proxyBase : CONFIG.gamma;
       if (!other) throw e;
-      const data = await getJSON(other + path);
+      const data = await getJSON(other + path, undefined, live);
       preferredBase = other;
       return data;
     }
@@ -221,7 +223,7 @@ async function gammaGet(path) {
   const primary = CONFIG.gamma;
   const secondary = CONFIG.proxyBase;
   if (!secondary) {
-    const data = await getJSON(primary + path);
+    const data = await getJSON(primary + path, undefined, live);
     preferredBase = primary;
     return data;
   }
@@ -238,7 +240,7 @@ async function gammaGet(path) {
 
     const tryBase = (base) => {
       outstanding++;
-      getJSON(base + path).then(
+      getJSON(base + path, undefined, live).then(
         (data) => {
           if (settled) return;
           settled = true;
@@ -301,7 +303,7 @@ async function resolveTagIds(slugs) {
 // Fetch ALL open events under a tag, page by page. A single request used to
 // cap the result (the API silently truncates large limits), which left later
 // matches out — e.g. only the first ~18 games of the tournament.
-async function fetchEventsByTag(tagId, excludeTagIds = []) {
+async function fetchEventsByTag(tagId, excludeTagIds = [], live = false) {
   const events = [];
   for (let offset = 0; offset < CONFIG.eventLimit; offset += CONFIG.pageSize) {
     const qs = new URLSearchParams({
@@ -314,7 +316,7 @@ async function fetchEventsByTag(tagId, excludeTagIds = []) {
       tag_id: tagId,
     });
     for (const id of excludeTagIds) qs.append('exclude_tag_id', id);
-    const page = await gammaGet(`/events?${qs.toString()}`);
+    const page = await gammaGet(`/events?${qs.toString()}`, live);
     if (!Array.isArray(page) || !page.length) break;
     events.push(...page);
     if (page.length < CONFIG.pageSize) break; // short page = no more results
@@ -324,7 +326,7 @@ async function fetchEventsByTag(tagId, excludeTagIds = []) {
 
 // Fetch ALL open events of a series (a sports "league" grouping on Gamma —
 // for game events this is the tightest server-side filter available).
-async function fetchEventsBySeries(seriesId) {
+async function fetchEventsBySeries(seriesId, live = false) {
   const events = [];
   for (let offset = 0; offset < CONFIG.eventLimit; offset += CONFIG.pageSize) {
     const qs = new URLSearchParams({
@@ -334,9 +336,11 @@ async function fetchEventsBySeries(seriesId) {
       order: 'endDate',
       ascending: 'true',
       series_id: String(seriesId),
-      _t: String(Date.now()), // cache-buster: live scores must never be stale
     });
-    const page = await gammaGet(`/events?${qs.toString()}`);
+    // Cache-buster only on the live poll, where scores must never be stale; the
+    // initial load omits it so a reload can be served from the browser cache.
+    if (live) qs.set('_t', String(Date.now()));
+    const page = await gammaGet(`/events?${qs.toString()}`, live);
     if (!Array.isArray(page) || !page.length) break;
     events.push(...page);
     if (page.length < CONFIG.pageSize) break;
@@ -345,7 +349,7 @@ async function fetchEventsBySeries(seriesId) {
 }
 
 // Fallback: if no tag is found, fetch events (paginated) and filter by keywords.
-async function fetchEventsFallback() {
+async function fetchEventsFallback(live = false) {
   const events = [];
   for (let offset = 0; offset < CONFIG.eventLimit; offset += CONFIG.pageSize) {
     const qs = new URLSearchParams({
@@ -354,9 +358,9 @@ async function fetchEventsFallback() {
       offset: String(offset),
       order: 'endDate',
       ascending: 'true',
-      _t: String(Date.now()), // cache-buster: live scores must never be stale
     });
-    const page = await gammaGet(`/events?${qs.toString()}`);
+    if (live) qs.set('_t', String(Date.now())); // fresh scores only on live poll
+    const page = await gammaGet(`/events?${qs.toString()}`, live);
     if (!Array.isArray(page) || !page.length) break;
     events.push(...page);
     if (page.length < CONFIG.pageSize) break;
@@ -545,14 +549,16 @@ function isLive(match) {
   return now >= s && now < s + LIVE_WINDOW_MS && !matchEnded(match);
 }
 
-async function loadMatches() {
+// `live=true` (the 30s in-play poll) bypasses the HTTP cache so scores stay
+// fresh; the default (initial discovery) uses the cache so reloads paint fast.
+async function loadMatches(live = false) {
   let events = [];
   let reached = false; // did any request to Polymarket actually succeed?
 
   // Preferred source: the series groups exactly the game events.
   if (CONFIG.seriesId) {
     try {
-      events = await fetchEventsBySeries(CONFIG.seriesId);
+      events = await fetchEventsBySeries(CONFIG.seriesId, live);
       reached = true;
     } catch {
       // fall through to the tag-based discovery below
@@ -566,7 +572,7 @@ async function loadMatches() {
     ]);
     if (tagIds.length) reached = true;
 
-    const fetched = await Promise.allSettled(tagIds.map((id) => fetchEventsByTag(id, excludeIds)));
+    const fetched = await Promise.allSettled(tagIds.map((id) => fetchEventsByTag(id, excludeIds, live)));
     for (const r of fetched) {
       if (r.status === 'fulfilled' && Array.isArray(r.value)) {
         events.push(...r.value);
@@ -577,7 +583,7 @@ async function loadMatches() {
   // If series/tags couldn't be resolved/fetched, try the open fallback query.
   // Letting it throw here surfaces a real connectivity/geo-block error.
   if (!events.length) {
-    events = await fetchEventsFallback();
+    events = await fetchEventsFallback(live);
     reached = true;
   }
   if (!reached) throw new Error('NETWORK');
@@ -740,6 +746,7 @@ function selectMatch(index) {
   // line so a stale "streaming" message never outlives the live match it
   // belonged to. The 1s ticker takes over once the stream is connected.
   syncLiveStream();
+  syncMatchClock(); // tick the minute even if the price stream never connects
   if (isLive(state.current)) {
     setStatus(`${state.matches.length} matches · 🔴 live — connecting stream…`, 'ok');
   } else if (matchEnded(state.current)) {
@@ -1483,7 +1490,6 @@ const stream = {
   reconnectTimer: null,
   keepaliveTimer: null,
   applyTimer: null,
-  clockTimer: null,     // 1s ticker for the streaming clock while connected
   lastMsgAt: 0,         // any inbound data (incl. PONG) — connection health signal
   goalRefreshAt: 0,     // epoch of last goal-triggered REST refresh (debounce)
 };
@@ -1555,8 +1561,9 @@ function openLiveStream(tokens) {
     stream.keepaliveTimer = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.send('PING');
     }, 5000);
-    // Tick the streaming clock (status + footer) every second while live.
-    stream.clockTimer = setInterval(onStreamClockTick, 1000);
+    // The 1s clock that repaints the minute/model and the "🔴 streaming" status
+    // runs off syncMatchClock (driven by the selected match being live), not off
+    // this socket — so the minute keeps ticking even if the price stream drops.
   };
   ws.onmessage = (e) => handleStreamMessage(e.data);
   ws.onclose = () => {
@@ -1573,7 +1580,6 @@ function openLiveStream(tokens) {
 function cleanupStreamTimers() {
   if (stream.keepaliveTimer) { clearInterval(stream.keepaliveTimer); stream.keepaliveTimer = null; }
   if (stream.applyTimer) { clearTimeout(stream.applyTimer); stream.applyTimer = null; }
-  if (stream.clockTimer) { clearInterval(stream.clockTimer); stream.clockTimer = null; }
   renderUpdated(); // restore the date/time footer once streaming stops
 }
 
@@ -1710,8 +1716,9 @@ function handleSportsMessage(data) {
     resolveSwing(state.current); // a confirmed score clears the pending badge
     renderMatchInfo();
     if (goalScored) flashGoalScore();
-    // A live↔ended transition may need the price stream started/stopped.
+    // A live↔ended transition may need the price stream and clock started/stopped.
     syncLiveStream();
+    syncMatchClock();
   }
   // Always refresh dropdown labels so 🔴→🏁 transitions are instant, even for
   // matches that aren't currently selected.
@@ -1914,16 +1921,32 @@ function renderStreamStatus() {
   setStatus(`${liveStr}${state.matches.length} matches · 🔴 streaming @ ${at}`, 'ok');
 }
 
-// 1s ticker while connected: advance the clock and keep the footer in
-// "Real Time" mode; if the stream stalls, both fall back automatically.
-function onStreamClockTick() {
-  renderStreamStatus();
-  renderUpdated();
+// 1s ticker that runs whenever the SELECTED match is live — independent of the
+// CLOB price stream. The minute clock and in-play model must keep advancing even
+// when the price stream is geo-blocked, stalled, or never connects; previously
+// this ticker was started only on the price socket's `open`, so the displayed
+// minute froze between the 30s REST polls wherever that socket was unavailable.
+let matchClockTimer = null;
+function syncMatchClock() {
+  const live = !!(state.current && isLive(state.current));
+  if (live && !matchClockTimer) {
+    matchClockTimer = setInterval(matchClockTick, 1000);
+  } else if (!live && matchClockTimer) {
+    clearInterval(matchClockTimer);
+    matchClockTimer = null;
+  }
+}
+
+function matchClockTick() {
+  renderStreamStatus(); // no-ops unless the price stream is actually streaming
+  renderUpdated();      // keeps the footer in "Real Time" mode while streaming
   // Re-render the score slot every second so the interpolated minute and the
   // model probabilities advance visually without waiting for the 30s REST tick.
   if (state.current && isLive(state.current) && !state.spinning) {
     resolveSwing(state.current); // expire the "unexpected swing" badge on timeout
     renderMatchInfo();
+  } else {
+    syncMatchClock(); // selection went non-live → stop ticking
   }
 }
 
@@ -1932,7 +1955,7 @@ async function refreshLive() {
   const prevId = state.current && state.current.id;
   const prevSections = state.current ? state.current.sections : null;
   try {
-    await loadMatches();
+    await loadMatches(true); // live poll: bypass the HTTP cache for fresh scores
   } catch (e) {
     console.warn('refreshLive: loadMatches failed, keeping current data', e);
     return; // transient network error — keep showing what we have
@@ -1949,6 +1972,7 @@ async function refreshLive() {
   drawWheel();
   updateLiveBadge();
   updateWhyButton();
+  syncMatchClock(); // start/stop the minute ticker as the selection's liveness changes
   const swingConfirmed = resolveSwing(state.current); // REST may carry the new score
   renderMatchInfo(); // live/ended adornment may have just changed
   if (swingConfirmed) flashGoalScore(); // gold burst when the lagging score lands
