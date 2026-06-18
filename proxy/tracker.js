@@ -143,7 +143,7 @@ async function stats(request, env, ctx, cors) {
       for (const r of base.results || []) { baseByCountry.set(r.c, r.n); baseTotal += r.n; }
     } catch { /* no baseline table yet */ }
 
-    const [total, last24, countries, refs, pages] = await Promise.all([
+    const [total, last24, countries, refs, pages, events, funnel] = await Promise.all([
       env.DB.prepare("SELECT COUNT(*) n FROM hits WHERE evt = 'view'").first(),
       env.DB.prepare("SELECT COUNT(*) n FROM hits WHERE evt = 'view' AND ts >= ?1")
         .bind(dayAgo).first(),
@@ -158,6 +158,17 @@ async function stats(request, env, ctx, cors) {
       env.DB.prepare(
         "SELECT page p, COUNT(*) n FROM hits WHERE evt = 'view' " +
         'GROUP BY page ORDER BY n DESC LIMIT 30'
+      ).all(),
+      // Funnel: per-event totals (all-time + last 24h) across every event type
+      // — view / spin / share / bracket. This is what makes the funnel visible.
+      env.DB.prepare(
+        'SELECT evt e, COUNT(*) n, SUM(ts >= ?1) d FROM hits GROUP BY evt ORDER BY n DESC'
+      ).bind(dayAgo).all(),
+      // Same funnel broken down by acquisition channel (?ref=), so reach can be
+      // judged per source: which channel turns views into spins/shares.
+      env.DB.prepare(
+        "SELECT ref r, evt e, COUNT(*) n FROM hits WHERE ref != '' " +
+        'GROUP BY ref, evt ORDER BY r, n DESC LIMIT 200'
       ).all(),
     ]);
 
@@ -198,6 +209,8 @@ async function stats(request, env, ctx, cors) {
       cities,                               // [{c:'MX', ci:'Monterrey', n}]
       refs: refs.results || [],
       pages: pages.results || [],
+      events: events.results || [],         // [{e:'view'|'spin'|'share'|'bracket', n, d}]
+      funnelByRef: funnel.results || [],    // [{r:'ig', e:'spin', n}]
       generatedAt: new Date().toISOString(),
     };
   } catch (e) {
