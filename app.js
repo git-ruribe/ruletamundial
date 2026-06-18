@@ -1055,9 +1055,11 @@ function renderScore(m) {
     const pct = (v) => Math.round(v * 100) + '%';
     const strip = document.createElement('div');
     strip.className = 'match-info__model';
-    // Find the market prob for the home team (sections sorted home/draw/away).
-    const mktHome = m.sections[0] ? m.sections[0].prob : null;
-    const diff = mktHome != null ? Math.round((wp.h - mktHome) * 100) : 0;
+    // Diff on whichever outcome the model favours most (sections: 0=home,1=draw,2=away).
+    const wpArr = [wp.h, wp.d, wp.a];
+    const topIdx = wpArr.indexOf(Math.max(...wpArr));
+    const mktTop = m.sections[topIdx] ? m.sections[topIdx].prob : null;
+    const diff = mktTop != null ? Math.round((wpArr[topIdx] - mktTop) * 100) : 0;
     const diffStr = diff === 0 ? '' : (diff > 0 ? ` (+${diff}pp)` : ` (${diff}pp)`);
     strip.innerHTML =
       `<span class="mi-model-label">⚗ Model</span>` +
