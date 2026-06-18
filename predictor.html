@@ -314,12 +314,8 @@ const parseList = (v) => { if (Array.isArray(v)) return v; try { const p = JSON.
 /* ═════════════════════════ DATA LAYER ═══════════════════════════════ */
 let base = GAMMA;
 async function api(path) {
-  // Always bypass the browser HTTP cache so the 60s live-refresh sees fresh data,
-  // not a heuristically-cached response. Append _t as a URL cache-buster too.
-  const sep = path.includes('?') ? '&' : '?';
-  const cacheBusted = path + sep + '_t=' + Date.now();
   const get = async (b) => {
-    const r = await fetch(b + cacheBusted, { cache: 'no-store', headers: { accept: 'application/json' } });
+    const r = await fetch(b + path, { headers: { accept: 'application/json' } });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   };
@@ -874,46 +870,27 @@ function load() {
   catch { /* corrupt/absent */ }
 }
 
-let liveRefreshTimer = null;
-
+// Single initial load — the predictor is a snapshot of the bracket as priced
+// right now; it does not need a live feed or polling.
 async function boot() {
   load();
   try {
     const [events] = await Promise.all([fetchSeries(), fetchWinnerOdds()]);
     buildModel(events);
-    if (!S.groups.size || S.matches.length < 30) throw new Error(‘incomplete data (‘ + S.matches.length + ‘ matches)’);
+    if (!S.groups.size || S.matches.length < 30) throw new Error('incomplete data (' + S.matches.length + ' matches)');
     S.loadedAt = new Date();
-    $(‘loading’).hidden = true;
-    $(‘groups-section’).hidden = false;
-    $(‘thirds-section’).hidden = false;
-    $(‘bracket-section’).hidden = false;
+    $('loading').hidden = true;
+    $('groups-section').hidden = false;
+    $('thirds-section').hidden = false;
+    $('bracket-section').hidden = false;
     render();
-    scheduleLiveRefresh(events);
   } catch (err) {
     console.error(err);
-    $(‘loading’).hidden = true;
-    const el = $(‘error’);
+    $('loading').hidden = true;
+    const el = $('error');
     el.hidden = false;
-    el.innerHTML = ‘<strong>Couldn’t load Polymarket data.</strong><br>’ + esc(err.message) + ‘<br><br><button class="iconbtn" onclick="location.reload()">Retry</button>’;
+    el.innerHTML = '<strong>Couldn\'t load Polymarket data.</strong><br>' + esc(err.message) + '<br><br><button class="iconbtn" onclick="location.reload()">Retry</button>';
   }
-}
-
-// While any group-stage game is live, re-fetch every 60s so the standings
-// stay current. Stop polling once no live games remain.
-function scheduleLiveRefresh(events) {
-  if (liveRefreshTimer) { clearTimeout(liveRefreshTimer); liveRefreshTimer = null; }
-  const hasLive = (events || []).some((ev) => ev.live === true);
-  if (!hasLive) return; // nothing live, no need to poll
-  liveRefreshTimer = setTimeout(async () => {
-    liveRefreshTimer = null;
-    try {
-      const [events] = await Promise.all([fetchSeries(), fetchWinnerOdds()]);
-      buildModel(events);
-      S.loadedAt = new Date();
-      render();
-      scheduleLiveRefresh(events);
-    } catch { scheduleLiveRefresh([]); } // retry in 60s even on error
-  }, 60000);
 }
 
 boot();
