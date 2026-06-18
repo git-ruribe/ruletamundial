@@ -11,7 +11,15 @@
 // live(lh, la, elapsed, score) → { h, d, a }
 //   Win probabilities given current game state. Convolves two truncated
 //   Poisson distributions (K=13 buckets) over remaining time fraction
-//   f = (90 − elapsed) / 90. O(K²) = 169 ops.
+//   f = (FULL_MATCH − elapsed) / FULL_MATCH. O(K²) = 169 ops.
+//
+//   FULL_MATCH is 97, not 90: referees routinely add ~7 minutes of stoppage
+//   in the second half (more at the 2026 World Cup). Anchoring at 90 makes the
+//   model declare the game over at the 90' whistle while the market keeps
+//   pricing the real added minutes — a spurious model-vs-market gap that grows
+//   as the clock nears 90'. Using 97 keeps a small residual of remaining time
+//   alive through stoppage. Calibration is unaffected: at elapsed=0, f=1.0
+//   regardless of the constant.
 //
 // Sanity invariant: live(lh, la, 0, {home:0,away:0}) ≈ calibrate input.
 
@@ -19,6 +27,11 @@
   'use strict';
 
   const K = 13; // truncate at 12 goals per side (P(X≥13) < 1e-6 for λ<5)
+
+  // Effective match length in minutes: 90' regulation + ~7' average stoppage.
+  // The remaining-time fraction f is measured against this, not 90, so the
+  // model doesn't prematurely "end" the game at the 90' whistle. See header.
+  const FULL_MATCH = 97;
 
   // Poisson PMF computed iteratively (avoids factorial overflow).
   function ppdf(lambda, k) {
@@ -96,8 +109,12 @@
 
   // In-play win probability given calibrated rates, current minute and score.
   function live(lh, la, elapsed, score) {
-    const t = Math.min(Number(elapsed) || 0, 95);
-    const f = Math.max(0, (90 - t) / 90);
+    // Cap at FULL_MATCH so f reaches 0 only at the very end. Note the feed
+    // drops the "+N" from stoppage-time labels ("90+5" → 90), so during 2H
+    // added time t typically sits at 90 and f holds ≈0.072 — exactly the
+    // residual uncertainty we want while those minutes are still being played.
+    const t = Math.min(Number(elapsed) || 0, FULL_MATCH);
+    const f = Math.max(0, (FULL_MATCH - t) / FULL_MATCH);
     const gh = (score && Number.isFinite(score.home)) ? score.home : 0;
     const ga = (score && Number.isFinite(score.away)) ? score.away : 0;
     return sim(lh * f, la * f, gh, ga);
