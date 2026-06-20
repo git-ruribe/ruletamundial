@@ -404,24 +404,30 @@ function buildModel(events) {
     const gm = ctx.match(/group\s+([A-L])\b/i);
 
     // Priority order:
-    //  1. Resolved exact-score market → the real final result.
-    //  2. Live score from the event feed (ev.score "H-A", ev.live === true) →
+    //  1. Final whistle (ev.closed) with a scoreline → the real result, taken
+    //     straight from ev.score. This is authoritative even for blowouts that
+    //     resolve under the exact-score "Any Other Score" market (any team 4+
+    //     goals, outside Polymarket's enumerated 0-0…3-3 grid) — those would
+    //     otherwise fall through to the moneyline's generic 1-0.
+    //  2. Resolved exact-score grid → backup real result if ev.score is absent.
+    //  3. Live score from the event feed (ev.score "H-A", ev.live === true) →
     //     shows current score in the standings while the game is in progress.
-    //  3. Moneyline 1X2 argmax → prediction for upcoming / untracked games.
-    //  4. Exact-score argmax fallback (draws over-predicted; last resort only).
+    //  4. Moneyline 1X2 argmax → prediction for upcoming / untracked games.
+    //  5. Exact-score argmax fallback (draws over-predicted; last resort only).
     const exact = exactByParent.get(String(ev.id));
     const best = exact ? scoreFromExact(exact) : null;
+    const sm = (typeof ev.score === 'string') ? ev.score.match(/^(\d+)\s*-\s*(\d+)$/) : null;
     let rec = null;
-    if (best && best.resolved) {
+    if (ev.closed === true && sm) {
+      rec = { hs: Number(sm[1]), as: Number(sm[2]), prob: 1, src: 'real' };
+      S.realCount++;
+    } else if (best && best.resolved) {
       rec = { hs: best.hs, as: best.as, prob: 1, src: 'real' };
       S.realCount++;
-    } else if (ev.live === true && typeof ev.score === 'string') {
+    } else if (ev.live === true && sm) {
       // In-progress: show actual live score so standings reflect the game state.
-      const lm = ev.score.match(/^(\d+)\s*-\s*(\d+)$/);
-      if (lm) {
-        rec = { hs: Number(lm[1]), as: Number(lm[2]), prob: 0.5, src: 'live' };
-        S.mlCount++;
-      }
+      rec = { hs: Number(sm[1]), as: Number(sm[2]), prob: 0.5, src: 'live' };
+      S.mlCount++;
     }
     if (!rec) {
       const ml = (ev.markets || []).filter((m) => m.sportsMarketType === 'moneyline');
